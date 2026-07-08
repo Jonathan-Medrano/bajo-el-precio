@@ -107,10 +107,17 @@ export async function listAlerts(chatId) {
   }));
 }
 
-/** Borra una suscripción por alertId. */
-export async function unsubscribeAlert({ chatId, alertId }) {
-  const deleted = await prisma.alert.deleteMany({ where: { id: Number(alertId), chatId: String(chatId) } });
-  return { ok: deleted.count > 0 };
+/** Borra una suscripción por alertId o productId. */
+export async function unsubscribeAlert({ chatId, alertId, productId }) {
+  if (alertId != null) {
+    const deleted = await prisma.alert.deleteMany({ where: { id: Number(alertId), chatId: String(chatId) } });
+    return { ok: deleted.count > 0 };
+  }
+  if (productId) {
+    const deleted = await prisma.alert.deleteMany({ where: { chatId: String(chatId), productId: String(productId) } });
+    return { ok: deleted.count > 0 };
+  }
+  return { ok: false };
 }
 
 /** Devuelve el producto + su historial de precios + stats (para el gráfico). */

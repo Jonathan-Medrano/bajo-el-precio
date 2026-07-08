@@ -16,10 +16,9 @@ async function savePrice(product, price, title, image, cheapestUrl) {
   await prisma.product.update({
     where: { id: product.id },
     data: {
-      lastScraped: new Date(),
+      lastTracked: new Date(),
       ...(title && { title }),
       ...(image && { image }),
-      // Actualizar url al listing más barato actual para que el botón "Ver en ML" apunte al mejor precio.
       ...(cheapestUrl && { url: cheapestUrl }),
     },
   });
@@ -35,20 +34,20 @@ async function savePrice(product, price, title, image, cheapestUrl) {
  */
 export async function trackerCycle({ limit = 200 } = {}) {
   // Prioridad: productos con alertas activas > más buscados > más viejos (stale-first).
-  // lastScraped es @updatedAt (nunca null). Incluir también productos sin pricePoints
-  // (nunca scrapeados — su lastScraped viene del import, no del tracker real).
+  // lastTracked es null para productos nuevos (importados pero no scrapeados aún).
+  // Esto evita el problema de lastScraped (@updatedAt) que se setea en el import.
   const twoHoursAgo = new Date(Date.now() - 2 * 3_600_000);
   const products = await prisma.product.findMany({
     where: {
       OR: [
-        { lastScraped: { lt: twoHoursAgo } },
-        { prices: { none: {} } },
+        { lastTracked: null },
+        { lastTracked: { lt: twoHoursAgo } },
       ],
     },
     orderBy: [
       { alerts: { _count: "desc" } },
       { queries: "desc" },
-      { lastScraped: "asc" },
+      { lastTracked: "asc" },
     ],
     take: limit,
   });

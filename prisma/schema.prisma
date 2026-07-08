@@ -20,6 +20,8 @@ model Product {
   queries     Int          @default(0)
   firstSeen   DateTime     @default(now())
   lastScraped DateTime     @updatedAt
+  // Última vez que el tracker leyó el precio (null = nunca scrapeado por el tracker).
+  lastTracked DateTime?
   prices      PricePoint[]
   alerts      Alert[]
 
