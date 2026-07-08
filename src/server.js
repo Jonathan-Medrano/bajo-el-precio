@@ -198,6 +198,28 @@ app.post("/api/keys", requireAdmin, async (req, res) => {
 app.post("/webhooks/mp", mpWebhookHandler);
 // Telegram bot webhook: /start, /mis_alertas, /borrar
 app.post("/webhooks/telegram", telegramWebhookHandler);
+// Importación masiva de productos desde otra instancia (migración local→prod).
+// Body: { products: [{id, title, url, image, category, price}] }
+app.post("/admin/import-products", requireAdmin, async (req, res) => {
+  const { products } = req.body ?? {};
+  if (!Array.isArray(products)) return res.status(400).json({ error: "esperaba {products:[]}" });
+  let ok = 0, skip = 0;
+  for (const p of products) {
+    if (!p.id) continue;
+    try {
+      await prisma.product.upsert({
+        where: { id: p.id },
+        update: { ...(p.title && { title: p.title }), ...(p.image && { image: p.image }), ...(p.url && { url: p.url }), ...(p.category && { category: p.category }) },
+        create: { id: p.id, title: p.title ?? "Producto", url: p.url ?? null, image: p.image ?? null, category: p.category ?? null },
+      });
+      if (p.price) {
+        await prisma.pricePoint.create({ data: { productId: p.id, price: Number(p.price) } });
+      }
+      ok++;
+    } catch { skip++; }
+  }
+  res.json({ ok: true, imported: ok, skipped: skip });
+});
 // Seed del catálogo con productos trending de ML (dispara en background).
 app.post("/admin/seed-catalog", requireAdmin, async (_req, res) => {
   res.json({ ok: true, message: "seeding iniciado en background" });
