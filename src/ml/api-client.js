@@ -1,5 +1,6 @@
 import PQueue from "p-queue";
 import pRetry, { AbortError } from "p-retry";
+import { getAppToken } from "./auth.js";
 
 const ML_API = "https://api.mercadolibre.com";
 
@@ -7,35 +8,9 @@ const ML_API = "https://api.mercadolibre.com";
 const queue = new PQueue({ intervalCap: 20, interval: 1000 });
 
 let resumeTimer = null;
-
-// ── OAuth app token (client credentials, optional) ────────────────────────────
 // ML's PolicyAgent blocks unauthenticated requests from cloud IPs (Fly.io, AWS…).
 // Set ML_CLIENT_ID + ML_CLIENT_SECRET in Fly secrets to enable authenticated mode.
-let _appToken = null;
-let _tokenExpiresAt = 0;
-
-async function getAppToken() {
-  const clientId = process.env.ML_CLIENT_ID;
-  const clientSecret = process.env.ML_CLIENT_SECRET;
-  if (!clientId || !clientSecret) return null;
-
-  if (_appToken && Date.now() < _tokenExpiresAt - 60_000) return _appToken;
-
-  const res = await fetch(`${ML_API}/oauth/token`, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ grant_type: "client_credentials", client_id: clientId, client_secret: clientSecret }),
-  });
-  if (!res.ok) {
-    console.warn(`[ml-api] OAuth token fetch failed: ${res.status}`);
-    return null;
-  }
-  const data = await res.json();
-  _appToken = data.access_token ?? null;
-  _tokenExpiresAt = Date.now() + (data.expires_in ?? 21600) * 1000;
-  console.log("[ml-api] App token refreshed");
-  return _appToken;
-}
+// getAppToken() returns null when credentials are missing (graceful degradation).
 
 function handleRateLimitHeaders(headers) {
   const remaining = parseInt(
@@ -60,7 +35,7 @@ function handleRateLimitHeaders(headers) {
 }
 
 async function mlFetch(path) {
-  const token = await getAppToken();
+  const token = await getAppToken().catch(() => null);
   const headers = token ? { Authorization: `Bearer ${token}` } : {};
   const res = await fetch(`${ML_API}${path}`, { headers });
   handleRateLimitHeaders(res.headers);
