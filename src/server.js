@@ -112,9 +112,12 @@ app.get("/robots.txt", (req, res) => {
   res.set("Content-Type", "text/plain").send(`User-agent: *\nAllow: /\n\nSitemap: ${baseUrlOf(req)}/sitemap.xml\n`);
 });
 
-async function fetchDeals() {
+async function fetchDeals({ category } = {}) {
   const products = await prisma.product.findMany({
-    where: { prices: { some: {} } },
+    where: {
+      prices: { some: {} },
+      ...(category ? { category: { equals: category, mode: "insensitive" } } : {}),
+    },
     select: {
       id: true, title: true, image: true, category: true, url: true,
       prices: { orderBy: { seenAt: "desc" }, take: 60, select: { price: true, seenAt: true } },
@@ -132,17 +135,18 @@ async function fetchDeals() {
     const avg = prices.reduce((s, x) => s + x.price, 0) / prices.length;
     if (current > min * 1.08) continue;
     const savingPct = Math.round(((avg - current) / avg) * 100);
-    deals.push({ id: p.id, title: p.title, image: p.image, url: p.url, current, min, avg: Math.round(avg), savingPct });
+    deals.push({ id: p.id, title: p.title, image: p.image, url: p.url, category: p.category, current, min, avg: Math.round(avg), savingPct });
   }
 
   deals.sort((a, b) => b.savingPct - a.savingPct);
   return deals.slice(0, 50);
 }
 
-app.get("/api/deals", async (_req, res) => {
+app.get("/api/deals", async (req, res) => {
   try {
-    const deals = await fetchDeals();
-    res.json(deals.map((d) => ({ id: d.id, title: d.title, image: d.image, price: d.current, min: d.min, avg: d.avg, savingPct: d.savingPct, url: d.url })));
+    const category = req.query.category || null;
+    const deals = await fetchDeals({ category });
+    res.json(deals.map((d) => ({ id: d.id, title: d.title, image: d.image, price: d.current, min: d.min, avg: d.avg, savingPct: d.savingPct, url: d.url, category: d.category })));
   } catch (e) {
     console.error("deals error:", e.message);
     res.status(500).json({ error: "fallo" });
@@ -305,6 +309,234 @@ app.get("/deals", async (req, res) => {
     console.error("deals page error:", e.message);
     res.status(500).send("Error interno");
   }
+});
+
+// Deals filtrados por categoría (redirige a /deals con filtro visible en title/h1)
+app.get("/deals/:category", async (req, res) => {
+  const catParam = req.params.category;
+  const catLabel = catParam.charAt(0).toUpperCase() + catParam.slice(1).toLowerCase();
+  const baseUrl = baseUrlOf(req);
+  try {
+    const deals = await fetchDeals({ category: catLabel });
+    const fmt = (n) => "$" + Math.round(n).toLocaleString("es-AR");
+    const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+    const cards = deals.length
+      ? deals.map((d) => `
+        <a class="deal-card" href="/p/${esc(d.id)}">
+          <div class="deal-img-wrap">
+            ${d.image ? `<img src="${esc(d.image)}" alt="${esc(d.title)}" loading="lazy">` : `<div class="deal-img-ph"></div>`}
+          </div>
+          <div class="deal-body">
+            <div class="deal-title">${esc(d.title)}</div>
+            <div class="deal-prices">
+              <span class="deal-current">${fmt(d.current)}</span>
+              <span class="deal-avg">${fmt(d.avg)}</span>
+            </div>
+            <div class="deal-badge">−${d.savingPct}% vs promedio</div>
+            <div class="deal-cta">Ver historial →</div>
+          </div>
+        </a>`).join("")
+      : `<div class="deals-empty">
+          <p>No hay ofertas verificadas en ${esc(catLabel)} por ahora.</p>
+          <p>El tracker actualiza continuamente — volvé en unas horas.</p>
+        </div>`;
+
+    const html = `<!DOCTYPE html>
+<html lang="es-AR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ofertas en ${esc(catLabel)} — MercadoLibre | Bajó el Precio</title>
+  <meta name="description" content="Los mejores precios verificados en ${esc(catLabel)} de MercadoLibre Argentina. Historial real, sin inflados.">
+  <meta property="og:title" content="Ofertas en ${esc(catLabel)} | Bajó el Precio">
+  <meta property="og:type" content="website">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 36 36'><rect width='36' height='36' rx='9' fill='%23e64c1e'/><polyline points='7,11 14,17 21,13 28,24' fill='none' stroke='%23fff' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root { --brand:#e64c1e;--brand-dark:#c03d18;--brand-bg:#fff3ef;--text:#111827;--text-soft:#6b7280;--text-xsoft:#9ca3af;--bg:#f9fafb;--surface:#ffffff;--border:#e5e7eb;--radius:12px;--shadow:0 1px 3px rgba(0,0,0,.08);--shadow-md:0 4px 6px -1px rgba(0,0,0,.08); }
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.5;-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
+    a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
+    .container{max-width:1100px;margin:0 auto;padding:0 20px}
+    .nav{background:var(--surface);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:100}
+    .nav-inner{display:flex;align-items:center;justify-content:space-between;gap:16px;height:60px}
+    .nav-logo{display:flex;align-items:center;gap:10px;font-weight:700;font-size:16px}
+    .nav-links{display:flex;align-items:center;gap:4px}
+    .nav-link{padding:7px 14px;border-radius:8px;font-size:14px;font-weight:500;color:var(--text-soft);transition:background 80ms,color 80ms}
+    .nav-link:hover{background:var(--bg);color:var(--text)}
+    .nav-link.cta{background:var(--brand);color:#fff}
+    .nav-link.cta:hover{background:var(--brand-dark)}
+    .deals-header{padding:48px 0 32px}
+    .deals-header h1{font-size:clamp(24px,4vw,40px);font-weight:800;letter-spacing:-.02em;margin-bottom:10px}
+    .deals-header p{font-size:16px;color:var(--text-soft);max-width:580px;line-height:1.6}
+    .deals-count{display:inline-block;background:var(--brand-bg);color:var(--brand);font-size:13px;font-weight:600;padding:4px 12px;border-radius:999px;margin-bottom:16px}
+    .breadcrumb{font-size:13px;color:var(--text-soft);margin-bottom:12px}
+    .breadcrumb a{color:var(--brand)}
+    .deals-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px;padding-bottom:64px}
+    .deal-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;display:flex;flex-direction:column;transition:box-shadow 80ms,border-color 80ms,transform 80ms}
+    .deal-card:hover{box-shadow:var(--shadow-md);border-color:var(--brand);transform:translateY(-2px)}
+    .deal-img-wrap{background:var(--bg);aspect-ratio:1;display:flex;align-items:center;justify-content:center;overflow:hidden}
+    .deal-img-wrap img{width:100%;height:100%;object-fit:contain}
+    .deal-img-ph{width:100%;aspect-ratio:1;background:var(--bg)}
+    .deal-body{padding:14px;display:flex;flex-direction:column;gap:6px;flex:1}
+    .deal-title{font-size:13px;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-weight:500}
+    .deal-prices{display:flex;align-items:baseline;gap:8px;margin-top:2px}
+    .deal-current{font-size:20px;font-weight:800}
+    .deal-avg{font-size:13px;color:var(--text-xsoft);text-decoration:line-through}
+    .deal-badge{display:inline-block;background:#ecfdf5;color:#065f46;font-size:12px;font-weight:700;padding:3px 10px;border-radius:999px}
+    .deal-cta{font-size:13px;color:var(--brand);font-weight:600;margin-top:auto;padding-top:8px}
+    .deals-empty{grid-column:1/-1;text-align:center;padding:80px 20px;color:var(--text-soft)}
+    @media(max-width:600px){.deals-grid{grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px}}
+  </style>
+</head>
+<body>
+<nav class="nav"><div class="container nav-inner">
+  <a class="nav-logo" href="/">
+    <svg viewBox="0 0 36 36" width="28" height="28"><rect width="36" height="36" rx="9" fill="#e64c1e"/><polyline points="7,11 14,17 21,13 28,24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    Bajó el Precio
+  </a>
+  <div class="nav-links">
+    <a class="nav-link" href="/">Buscar</a>
+    <a class="nav-link" href="/deals">Ofertas</a>
+    <a class="nav-link cta" href="https://t.me/bajoelprecio_bot" target="_blank" rel="noopener">Telegram →</a>
+  </div>
+</div></nav>
+<main><div class="container">
+  <div class="deals-header">
+    <div class="breadcrumb"><a href="/deals">Ofertas</a> › ${esc(catLabel)}</div>
+    <div class="deals-count">${deals.length} productos verificados</div>
+    <h1>🔥 Ofertas en ${esc(catLabel)}</h1>
+    <p>Productos de MercadoLibre en precio mínimo verificado. Historial real, sin inflados.</p>
+  </div>
+  <div class="deals-grid">${cards}</div>
+</div></main>
+<footer style="padding:40px 0;border-top:1px solid var(--border)">
+  <div class="container" style="font-size:12px;color:var(--text-soft)">
+    Herramienta independiente. No afiliada a MercadoLibre S.A.
+  </div>
+</footer>
+</body></html>`;
+
+    res.set("Content-Type", "text/html; charset=utf-8").send(html);
+  } catch (e) {
+    console.error("deals/:category error:", e.message);
+    res.status(500).send("Error interno");
+  }
+});
+
+// Página de pricing /premium
+app.get("/premium", (_req, res) => {
+  const html = `<!DOCTYPE html>
+<html lang="es-AR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Plan Pro | Bajó el Precio</title>
+  <meta name="description" content="Activá alertas ilimitadas y notificaciones inmediatas con el Plan Pro de Bajó el Precio.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 36 36'><rect width='36' height='36' rx='9' fill='%23e64c1e'/><polyline points='7,11 14,17 21,13 28,24' fill='none' stroke='%23fff' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Inter',system-ui,sans-serif;background:#f9fafb;color:#111827;line-height:1.5;-webkit-font-smoothing:antialiased}
+    a{color:inherit;text-decoration:none}
+    .container{max-width:640px;margin:0 auto;padding:0 20px}
+    .nav{background:#fff;border-bottom:1px solid #e5e7eb;position:sticky;top:0;z-index:100}
+    .nav-inner{display:flex;align-items:center;justify-content:space-between;height:60px}
+    .nav-logo{font-weight:700;font-size:16px;display:flex;align-items:center;gap:10px}
+    .hero{padding:64px 0 48px;text-align:center}
+    .hero h1{font-size:clamp(28px,5vw,48px);font-weight:800;letter-spacing:-.02em;line-height:1.1;margin-bottom:16px}
+    .hero p{font-size:18px;color:#6b7280;max-width:480px;margin:0 auto 32px}
+    .plans{display:grid;gap:16px;margin-bottom:48px}
+    .plan{background:#fff;border:2px solid #e5e7eb;border-radius:16px;padding:32px;text-align:center;transition:border-color 80ms}
+    .plan.recommended{border-color:#e64c1e;position:relative}
+    .plan-badge{position:absolute;top:-13px;left:50%;transform:translateX(-50%);background:#e64c1e;color:#fff;font-size:12px;font-weight:700;padding:4px 16px;border-radius:999px;white-space:nowrap}
+    .plan-name{font-size:14px;font-weight:600;color:#6b7280;margin-bottom:8px}
+    .plan-price{font-size:40px;font-weight:800;line-height:1}
+    .plan-price span{font-size:16px;font-weight:500;color:#6b7280}
+    .plan-features{list-style:none;margin:24px 0;text-align:left;display:flex;flex-direction:column;gap:10px}
+    .plan-features li{display:flex;align-items:center;gap:10px;font-size:15px}
+    .plan-features li::before{content:"✅";font-size:14px}
+    .btn{display:block;width:100%;padding:14px;border-radius:12px;font-size:16px;font-weight:700;text-align:center;transition:background 80ms,transform 80ms;cursor:pointer}
+    .btn:active{transform:scale(.98)}
+    .btn-primary{background:#e64c1e;color:#fff}
+    .btn-primary:hover{background:#c03d18}
+    .btn-secondary{background:#f3f4f6;color:#111827}
+    .btn-secondary:hover{background:#e5e7eb}
+    .free-note{text-align:center;font-size:14px;color:#6b7280;margin-top:24px}
+    .faq{padding-bottom:64px}
+    .faq h2{font-size:24px;font-weight:800;margin-bottom:24px;text-align:center}
+    .faq-item{margin-bottom:16px}
+    .faq-q{font-weight:600;margin-bottom:4px}
+    .faq-a{font-size:14px;color:#6b7280;line-height:1.6}
+  </style>
+</head>
+<body>
+<nav class="nav"><div class="container nav-inner">
+  <a class="nav-logo" href="/">
+    <svg viewBox="0 0 36 36" width="28" height="28"><rect width="36" height="36" rx="9" fill="#e64c1e"/><polyline points="7,11 14,17 21,13 28,24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    Bajó el Precio
+  </a>
+  <a href="/" style="font-size:14px;font-weight:500;color:#6b7280">← Volver</a>
+</div></nav>
+<main><div class="container">
+  <div class="hero">
+    <h1>Comprar en el momento justo.<br>Sin perder una oferta.</h1>
+    <p>El Plan Pro te da alertas ilimitadas y notificaciones inmediatas cuando el precio baja.</p>
+  </div>
+  <div class="plans">
+    <div class="plan recommended">
+      <div class="plan-badge">⭐ Más popular</div>
+      <div class="plan-name">PRO MENSUAL</div>
+      <div class="plan-price">$4.990 <span>ARS / mes</span></div>
+      <ul class="plan-features">
+        <li>Hasta 50 alertas de precio</li>
+        <li>Notificaciones inmediatas por Telegram</li>
+        <li>Acceso a todos los históricos</li>
+        <li>Soporte prioritario</li>
+      </ul>
+      <a class="btn btn-primary" href="https://t.me/bajoelprecio_bot?start=premium">Activar en Telegram →</a>
+    </div>
+    <div class="plan">
+      <div class="plan-name">GRATUITO</div>
+      <div class="plan-price">$0 <span>para siempre</span></div>
+      <ul class="plan-features">
+        <li>3 alertas de precio</li>
+        <li>Historial completo de precios</li>
+        <li>Extensión de Chrome</li>
+      </ul>
+      <a class="btn btn-secondary" href="/">Usar gratis →</a>
+    </div>
+  </div>
+  <p class="free-note">Pagá con cualquier tarjeta o saldo de MercadoPago. Cancelá cuando quieras.</p>
+  <div class="faq">
+    <h2>Preguntas frecuentes</h2>
+    <div class="faq-item">
+      <div class="faq-q">¿Cómo activo el plan?</div>
+      <div class="faq-a">Escribile /premium al bot de Telegram. Te manda un link de pago de MercadoPago. Después del pago, se activa automáticamente en segundos.</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q">¿Qué diferencia hay entre "inmediata" y "batch"?</div>
+      <div class="faq-a">En el plan free las notificaciones van en lotes cada hora. En Pro, el bot te avisa dentro de los primeros minutos de que el precio baje.</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q">¿Puedo cancelar?</div>
+      <div class="faq-a">Sí. El plan es por período (30 días). No se renueva solo — si no pagás el siguiente mes, volvés automáticamente al plan gratis.</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q">¿Qué pasa con mis alertas si vuelvo al plan gratis?</div>
+      <div class="faq-a">Se conservan hasta 3. Las demás quedan pausadas hasta que actives Premium nuevamente.</div>
+    </div>
+  </div>
+</div></main>
+</body></html>`;
+  res.set("Content-Type", "text/html; charset=utf-8").send(html);
+});
+
+app.get("/premium/gracias", (_req, res) => {
+  res.redirect("https://t.me/bajoelprecio_bot");
 });
 
 // Trackear un producto — intenta la API primero (fast-path), Playwright si falla.
