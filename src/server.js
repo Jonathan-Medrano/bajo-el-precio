@@ -667,17 +667,16 @@ app.post("/admin/run-tracker", requireAdmin, async (_req, res) => {
   res.json({ ok: true, message: "tracker iniciado en background" });
   import("./tracker.js").then(({ trackerCycle }) => trackerCycle()).catch(console.error);
 });
-// Debug: llama la API de ML con un producto específico y devuelve el status HTTP.
-// TEMP: sin auth para poder diagnosticar desde producción sin conocer el token.
+// Debug: llama la API de ML (con token si está configurado) y devuelve el status HTTP.
+// TEMP: sin auth de admin para diagnosticar desde producción.
 app.get("/debug/ml-status", async (_req, res) => {
+  const hasToken = !!(process.env.ML_CLIENT_ID && process.env.ML_CLIENT_SECRET);
   try {
-    const r = await fetch("https://api.mercadolibre.com/items/MLA1499474404");
-    const text = await r.text();
-    let parsed = null;
-    try { parsed = JSON.parse(text); } catch {}
-    res.json({ http_status: r.status, price: parsed?.price ?? null, code: parsed?.code ?? null, message: parsed?.message ?? null });
+    const { fetchItem } = await import("./ml/api-client.js");
+    const item = await fetchItem("MLA1499474404");
+    res.json({ ok: true, authenticated: hasToken, price: item?.price ?? null, title: item?.title?.slice(0, 40) ?? null });
   } catch (e) {
-    res.json({ error: e.message });
+    res.json({ ok: false, authenticated: hasToken, error: e.message });
   }
 });
 

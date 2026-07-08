@@ -8,6 +8,35 @@ const queue = new PQueue({ intervalCap: 20, interval: 1000 });
 
 let resumeTimer = null;
 
+// ── OAuth app token (client credentials, optional) ────────────────────────────
+// ML's PolicyAgent blocks unauthenticated requests from cloud IPs (Fly.io, AWS…).
+// Set ML_CLIENT_ID + ML_CLIENT_SECRET in Fly secrets to enable authenticated mode.
+let _appToken = null;
+let _tokenExpiresAt = 0;
+
+async function getAppToken() {
+  const clientId = process.env.ML_CLIENT_ID;
+  const clientSecret = process.env.ML_CLIENT_SECRET;
+  if (!clientId || !clientSecret) return null;
+
+  if (_appToken && Date.now() < _tokenExpiresAt - 60_000) return _appToken;
+
+  const res = await fetch(`${ML_API}/oauth/token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ grant_type: "client_credentials", client_id: clientId, client_secret: clientSecret }),
+  });
+  if (!res.ok) {
+    console.warn(`[ml-api] OAuth token fetch failed: ${res.status}`);
+    return null;
+  }
+  const data = await res.json();
+  _appToken = data.access_token ?? null;
+  _tokenExpiresAt = Date.now() + (data.expires_in ?? 21600) * 1000;
+  console.log("[ml-api] App token refreshed");
+  return _appToken;
+}
+
 function handleRateLimitHeaders(headers) {
   const remaining = parseInt(
     headers.get("x-ratelimit-remaining") ?? headers.get("ratelimit-remaining") ?? "999",
@@ -31,13 +60,21 @@ function handleRateLimitHeaders(headers) {
 }
 
 async function mlFetch(path) {
-  const res = await fetch(`${ML_API}${path}`);
+  const token = await getAppToken();
+  const headers = token ? { Authorization: `Bearer ${token}` } : {};
+  const res = await fetch(`${ML_API}${path}`, { headers });
   handleRateLimitHeaders(res.headers);
 
   if (res.status === 429) {
     const retryAfterSecs = parseInt(res.headers.get("retry-after") ?? "5", 10);
     await new Promise((r) => setTimeout(r, retryAfterSecs * 1000));
     throw new Error(`[ml-api] 429 on ${path}`);
+  }
+
+  if (res.status === 401) {
+    // Token rejected or missing — invalidate cached token and abort (don't retry without token)
+    _appToken = null;
+    throw new AbortError(`[ml-api] 401 on ${path} — check ML_CLIENT_ID/ML_CLIENT_SECRET`);
   }
 
   if (res.status === 404) throw new AbortError(`[ml-api] 404 Not found: ${path}`);
@@ -49,7 +86,7 @@ async function mlFetch(path) {
 const retry = (fn) =>
   pRetry(fn, { retries: 3, minTimeout: 500, factor: 2, randomize: true });
 
-/** GET /items/{id} — regular MLA listing, no auth required. */
+/** GET /items/{id} — needs Bearer token when called from cloud IPs. */
 export function fetchItem(itemId) {
   return queue.add(() => retry(() => mlFetch(`/items/${itemId}`)));
 }
@@ -57,6 +94,7 @@ export function fetchItem(itemId) {
 /**
  * GET /items?ids=MLA1,MLA2,...
  * Max 20 IDs. Returns [{ code, body }] where body is the item or null on 404.
+ * Requires OAuth token.
  */
 export function fetchItemsBatch(itemIds) {
   if (!itemIds.length) return Promise.resolve([]);
