@@ -131,9 +131,50 @@ export async function getHistory(id) {
       }
     : { count: 0 };
 
+  const intelligence = buildIntelligence(prices);
+
   return {
     product: { id: product.id, title: product.title, url: affiliateUrl(product.url), image: product.image, rawUrl: product.url, category: product.category, firstSeen: product.firstSeen },
     history: product.prices.map((p) => ({ price: p.price, seenAt: p.seenAt })),
     stats,
+    intelligence,
   };
+}
+
+function buildIntelligence(prices) {
+  if (prices.length < 5) {
+    return { confidence: 0, isDeal: false, trend: "estable", recommendation: "⚪ Insuficiente historial para recomendar" };
+  }
+
+  const avg = prices.reduce((s, p) => s + p, 0) / prices.length;
+  const current = prices[prices.length - 1];
+
+  const recent5 = prices.slice(-5);
+  const prev5 = prices.slice(-10, -5);
+  const avgRecent = recent5.reduce((s, p) => s + p, 0) / recent5.length;
+  const avgPrev = prev5.length ? prev5.reduce((s, p) => s + p, 0) / prev5.length : avgRecent;
+
+  const THRESHOLD = avgPrev * 0.02;
+  const trend = avgRecent < avgPrev - THRESHOLD ? "bajando" : avgRecent > avgPrev + THRESHOLD ? "subiendo" : "estable";
+
+  const isDeal = current <= avg * 0.95;
+
+  let confidence = 0;
+  if (prices.length >= 10) confidence += 30;
+  if (prices.length >= 30) confidence += 20;
+  if (isDeal) confidence += 25;
+  if (trend === "bajando") confidence += 25;
+
+  let recommendation;
+  if (confidence >= 70 && isDeal) {
+    recommendation = "🟢 Comprar ahora — precio bajo confirmado por historial";
+  } else if (confidence >= 50 && isDeal) {
+    recommendation = "🟡 Buen momento — está por debajo del promedio";
+  } else if (trend === "subiendo") {
+    recommendation = "🔴 Está subiendo — el historial sugiere esperar";
+  } else {
+    recommendation = "⚪ Insuficiente historial para recomendar";
+  }
+
+  return { confidence, isDeal, trend, recommendation };
 }

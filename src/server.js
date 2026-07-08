@@ -112,6 +112,201 @@ app.get("/robots.txt", (req, res) => {
   res.set("Content-Type", "text/plain").send(`User-agent: *\nAllow: /\n\nSitemap: ${baseUrlOf(req)}/sitemap.xml\n`);
 });
 
+async function fetchDeals() {
+  const products = await prisma.product.findMany({
+    where: { prices: { some: {} } },
+    select: {
+      id: true, title: true, image: true, category: true, url: true,
+      prices: { orderBy: { seenAt: "desc" }, take: 60, select: { price: true, seenAt: true } },
+    },
+    orderBy: { queries: "desc" },
+    take: 500,
+  });
+
+  const deals = [];
+  for (const p of products) {
+    const prices = p.prices;
+    if (prices.length < 3) continue;
+    const current = prices.at(0).price;
+    const min = Math.min(...prices.map((x) => x.price));
+    const avg = prices.reduce((s, x) => s + x.price, 0) / prices.length;
+    if (current > min * 1.08) continue;
+    const savingPct = Math.round(((avg - current) / avg) * 100);
+    deals.push({ id: p.id, title: p.title, image: p.image, url: p.url, current, min, avg: Math.round(avg), savingPct });
+  }
+
+  deals.sort((a, b) => b.savingPct - a.savingPct);
+  return deals.slice(0, 50);
+}
+
+app.get("/api/deals", async (_req, res) => {
+  try {
+    const deals = await fetchDeals();
+    res.json(deals.map((d) => ({ id: d.id, title: d.title, image: d.image, price: d.current, min: d.min, avg: d.avg, savingPct: d.savingPct, url: d.url })));
+  } catch (e) {
+    console.error("deals error:", e.message);
+    res.status(500).json({ error: "fallo" });
+  }
+});
+
+app.get("/deals", async (req, res) => {
+  const baseUrl = baseUrlOf(req);
+  try {
+    const deals = await fetchDeals();
+    const fmt = (n) => "$" + Math.round(n).toLocaleString("es-AR");
+    const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    const ogImage = deals[0] ? `${baseUrl}/og/${deals[0].id}.png` : "";
+
+    const cards = deals.length
+      ? deals.map((d) => `
+        <a class="deal-card" href="/p/${esc(d.id)}">
+          <div class="deal-img-wrap">
+            ${d.image ? `<img src="${esc(d.image)}" alt="${esc(d.title)}" loading="lazy">` : `<div class="deal-img-ph"></div>`}
+          </div>
+          <div class="deal-body">
+            <div class="deal-title">${esc(d.title)}</div>
+            <div class="deal-prices">
+              <span class="deal-current">${fmt(d.current)}</span>
+              <span class="deal-avg">${fmt(d.avg)}</span>
+            </div>
+            <div class="deal-badge">−${d.savingPct}% vs promedio</div>
+            <div class="deal-cta">Ver historial →</div>
+          </div>
+        </a>`).join("")
+      : `<div class="deals-empty">
+          <p>Por ahora no hay productos en precio mínimo verificado.</p>
+          <p>El tracker actualiza continuamente — volvé en unas horas.</p>
+        </div>`;
+
+    const html = `<!DOCTYPE html>
+<html lang="es-AR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ofertas reales en MercadoLibre | Bajó el Precio</title>
+  <meta name="description" content="Productos de MercadoLibre en su precio mínimo verificado. Historial real, sin inflados. Actualizado continuamente.">
+  <meta property="og:title" content="Ofertas reales en MercadoLibre | Bajó el Precio">
+  <meta property="og:description" content="Productos en precio mínimo verificado. Sin descuentos inventados.">
+  <meta property="og:type" content="website">
+  ${ogImage ? `<meta property="og:image" content="${esc(ogImage)}">` : ""}
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 36 36'><rect width='36' height='36' rx='9' fill='%23e64c1e'/><polyline points='7,11 14,17 21,13 28,24' fill='none' stroke='%23fff' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --brand: #e64c1e; --brand-dark: #c03d18; --brand-bg: #fff3ef;
+      --text: #111827; --text-soft: #6b7280; --text-xsoft: #9ca3af;
+      --bg: #f9fafb; --surface: #ffffff; --border: #e5e7eb;
+      --radius: 12px;
+      --shadow: 0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.04);
+      --shadow-md: 0 4px 6px -1px rgba(0,0,0,.08), 0 2px 4px -1px rgba(0,0,0,.04);
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body { font-family: 'Inter', system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); line-height: 1.5; -webkit-font-smoothing: antialiased; font-variant-numeric: tabular-nums; }
+    a { color: inherit; text-decoration: none; }
+    img { max-width: 100%; display: block; }
+    .container { max-width: 1100px; margin: 0 auto; padding: 0 20px; }
+    .nav { background: var(--surface); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 100; }
+    .nav-inner { display: flex; align-items: center; justify-content: space-between; gap: 16px; height: 60px; }
+    .nav-logo { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 16px; color: var(--text); }
+    .nav-links { display: flex; align-items: center; gap: 4px; }
+    .nav-link { padding: 7px 14px; border-radius: 8px; font-size: 14px; font-weight: 500; color: var(--text-soft); transition: background 80ms, color 80ms; }
+    .nav-link:hover { background: var(--bg); color: var(--text); }
+    .nav-link.cta { background: var(--brand); color: #fff; }
+    .nav-link.cta:hover { background: var(--brand-dark); }
+    .deals-header { padding: 48px 0 32px; }
+    .deals-header h1 { font-size: clamp(24px, 4vw, 40px); font-weight: 800; letter-spacing: -.02em; margin-bottom: 10px; }
+    .deals-header p { font-size: 16px; color: var(--text-soft); max-width: 580px; line-height: 1.6; }
+    .deals-count { display: inline-block; background: var(--brand-bg); color: var(--brand); font-size: 13px; font-weight: 600; padding: 4px 12px; border-radius: 999px; margin-bottom: 16px; }
+    .deals-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; padding-bottom: 64px; }
+    .deal-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; display: flex; flex-direction: column; transition: box-shadow 80ms, border-color 80ms, transform 80ms; }
+    .deal-card:hover { box-shadow: var(--shadow-md); border-color: var(--brand); transform: translateY(-2px); }
+    .deal-img-wrap { background: var(--bg); aspect-ratio: 1; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+    .deal-img-wrap img { width: 100%; height: 100%; object-fit: contain; }
+    .deal-img-ph { width: 100%; aspect-ratio: 1; background: var(--bg); }
+    .deal-body { padding: 14px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
+    .deal-title { font-size: 13px; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; color: var(--text); font-weight: 500; }
+    .deal-prices { display: flex; align-items: baseline; gap: 8px; margin-top: 2px; }
+    .deal-current { font-size: 20px; font-weight: 800; color: var(--text); }
+    .deal-avg { font-size: 13px; color: var(--text-xsoft); text-decoration: line-through; }
+    .deal-badge { display: inline-block; background: #ecfdf5; color: #065f46; font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 999px; }
+    .deal-cta { font-size: 13px; color: var(--brand); font-weight: 600; margin-top: auto; padding-top: 8px; }
+    .deals-empty { grid-column: 1 / -1; text-align: center; padding: 80px 20px; color: var(--text-soft); }
+    .deals-empty p { font-size: 16px; margin-bottom: 8px; }
+    footer { padding: 40px 0; border-top: 1px solid var(--border); }
+    .footer-inner { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+    .footer-logo { font-size: 15px; font-weight: 700; color: var(--text); display: flex; align-items: center; gap: 8px; }
+    .footer-links { display: flex; gap: 20px; flex-wrap: wrap; }
+    .footer-links a { font-size: 13px; color: var(--text-soft); }
+    .footer-links a:hover { color: var(--text); }
+    .footer-copy { font-size: 12px; color: var(--text-xsoft); margin-top: 12px; }
+    @media (max-width: 600px) { .deals-grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; } }
+  </style>
+</head>
+<body>
+<nav class="nav">
+  <div class="container nav-inner">
+    <a class="nav-logo" href="/">
+      <svg viewBox="0 0 36 36" width="28" height="28" aria-hidden="true">
+        <rect width="36" height="36" rx="9" fill="#e64c1e"/>
+        <polyline points="7,11 14,17 21,13 28,24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M28 24 L28 19 M28 24 L23 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      Bajó el Precio
+    </a>
+    <div class="nav-links">
+      <a class="nav-link" href="/">Buscar</a>
+      <a class="nav-link" href="/dashboard">Mis alertas</a>
+      <a class="nav-link cta" href="https://t.me/bajoelprecio_bot" target="_blank" rel="noopener">Telegram →</a>
+    </div>
+  </div>
+</nav>
+
+<main>
+  <div class="container">
+    <div class="deals-header">
+      <div class="deals-count">${deals.length} productos verificados</div>
+      <h1>🔥 Ofertas reales ahora</h1>
+      <p>Solo aparecen productos cuyo precio actual está dentro del 8% de su mínimo histórico verificado. Sin inflados, sin especulación.</p>
+    </div>
+    <div class="deals-grid">
+      ${cards}
+    </div>
+  </div>
+</main>
+
+<footer>
+  <div class="container">
+    <div class="footer-inner">
+      <div class="footer-logo">
+        <svg viewBox="0 0 36 36" width="22" height="22" aria-hidden="true">
+          <rect width="36" height="36" rx="9" fill="#e64c1e"/>
+          <polyline points="7,11 14,17 21,13 28,24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        Bajó el Precio
+      </div>
+      <div class="footer-links">
+        <a href="/">Inicio</a>
+        <a href="/dashboard">Mis alertas</a>
+        <a href="https://t.me/bajoelprecio_bot" target="_blank" rel="noopener">Bot Telegram</a>
+        <a href="/sitemap.xml">Sitemap</a>
+      </div>
+    </div>
+    <p class="footer-copy">Herramienta independiente. No afiliada a MercadoLibre S.A. · Datos con fines informativos.</p>
+  </div>
+</footer>
+</body>
+</html>`;
+
+    res.set("Content-Type", "text/html; charset=utf-8").send(html);
+  } catch (e) {
+    console.error("deals page error:", e.message);
+    res.status(500).send("Error interno");
+  }
+});
+
 // Trackear un producto — intenta la API primero (fast-path), Playwright si falla.
 // Timeout de Express es 30s, así que hacemos todo lo posible en ese tiempo.
 app.post("/api/track", async (req, res) => {
