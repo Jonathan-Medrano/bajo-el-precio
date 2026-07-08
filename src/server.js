@@ -114,6 +114,13 @@ app.get("/robots.txt", (req, res) => {
   res.set("Content-Type", "text/plain").send(`User-agent: *\nAllow: /\n\nSitemap: ${baseUrlOf(req)}/sitemap.xml\n`);
 });
 
+// Referral redirect: /ref/:chatId → Telegram deep link
+app.get("/ref/:code", (req, res) => {
+  const code = req.params.code.replace(/\D/g, "");
+  if (!code) return res.redirect("/");
+  res.redirect(302, `https://t.me/bajoelprecio_bot?start=ref_${code}`);
+});
+
 async function fetchDeals({ category } = {}) {
   const products = await prisma.product.findMany({
     where: {

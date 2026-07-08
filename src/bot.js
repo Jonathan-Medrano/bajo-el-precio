@@ -2,8 +2,18 @@ import { listAlerts, unsubscribeAlert } from "./service.js";
 import { sendUser } from "./telegram.js";
 import { getPlan } from "./plans.js";
 import { createPaymentPreference } from "./mercadopago.js";
+import { prisma } from "./db.js";
 
 const PUBLIC_URL = process.env.PUBLIC_URL || "http://localhost:3000";
+
+async function processReferral(referrerId, newUserId) {
+  try {
+    await prisma.referral.create({ data: { referrerId, newUserId } });
+    await sendUser(referrerId, `🎉 ¡Un amigo usó tu link de referido! Ganaste +1 alerta extra.`).catch(() => {});
+  } catch {
+    // Unique constraint on newUserId → already referred, silent skip
+  }
+}
 
 async function handleUpdate(update) {
   const msg = update.message || update.edited_message;
@@ -14,6 +24,15 @@ async function handleUpdate(update) {
   const cmd = text.split(" ")[0].replace(/@.*$/, "").toLowerCase();
 
   if (cmd === "/start" || cmd === "/ayuda") {
+    // Handle referral deep link: /start ref_CHATID
+    const startPayload = text.split(" ")[1];
+    if (startPayload?.startsWith("ref_")) {
+      const referrerId = startPayload.slice(4);
+      if (referrerId && referrerId !== chatId) {
+        await processReferral(referrerId, chatId);
+      }
+    }
+    const refLink = `https://t.me/bajoelprecio_bot?start=ref_${chatId}`;
     await sendUser(
       chatId,
       `📉 <b>Bajó el Precio</b> — historial real de precios de MercadoLibre.\n\n` +
@@ -23,7 +42,9 @@ async function handleUpdate(update) {
       `• /borrar &lt;ID&gt; — eliminar una alerta\n` +
       `• /premium — activar plan Pro (alertas ilimitadas)\n\n` +
       `🌐 Buscá cualquier producto en <a href="${PUBLIC_URL}">${PUBLIC_URL}</a> ` +
-      `y activá la alerta desde ahí con tu Chat ID.`
+      `y activá la alerta desde ahí con tu Chat ID.\n\n` +
+      `💌 <b>Referí amigos:</b> +1 alerta extra por cada uno\n` +
+      `<a href="${refLink}">${refLink}</a>`
     );
     return;
   }

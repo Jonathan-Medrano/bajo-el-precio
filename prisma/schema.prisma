@@ -65,6 +65,16 @@ model Alert {
   @@index([productId])
 }
 
+/// Referidos: cada fila = un amigo que registró al referente. El referente gana +1 alerta por fila.
+model Referral {
+  id         Int      @id @default(autoincrement())
+  referrerId String
+  newUserId  String   @unique
+  createdAt  DateTime @default(now())
+
+  @@index([referrerId])
+}
+
 /// Un precio observado de un producto en un momento dado (la serie temporal = el gráfico).
 model PricePoint {
   id        Int      @id @default(autoincrement())

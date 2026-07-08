@@ -14,8 +14,12 @@ export async function isPremium(chatId) {
 /** Devuelve el plan + uso de alertas de un usuario (para mostrarle su estado). */
 export async function getPlan(chatId) {
   const premium = await isPremium(chatId);
-  const used = await prisma.alert.count({ where: { chatId: String(chatId) } });
-  return { plan: premium ? "premium" : "free", premium, used, limit: premium ? null : FREE_ALERT_LIMIT };
+  const [used, referrals] = await Promise.all([
+    prisma.alert.count({ where: { chatId: String(chatId) } }),
+    premium ? Promise.resolve(0) : prisma.referral.count({ where: { referrerId: String(chatId) } }),
+  ]);
+  const limit = premium ? null : FREE_ALERT_LIMIT + referrals;
+  return { plan: premium ? "premium" : "free", premium, used, limit };
 }
 
 /** Otorga premium a un usuario (lo usa el admin / el webhook de pago a futuro). */

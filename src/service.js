@@ -4,7 +4,7 @@ import { expandUrl } from "./link-expander.js";
 import { readProductPrice, readProductPriceFromApi } from "./ml/price-reader.js";
 import { affiliateUrl } from "./affiliate.js";
 import { onNewPrice } from "./alerts.js";
-import { isPremium, FREE_ALERT_LIMIT } from "./plans.js";
+import { getPlan } from "./plans.js";
 
 /** Resuelve un input (link, link corto, id) al producto. */
 export async function resolveId(input) {
@@ -66,14 +66,14 @@ export async function observeProduct({ id, price, title, image, url, category })
 export async function subscribeAlert({ chatId, productId, targetPrice, title, url, image }) {
   if (!chatId || !productId) return { error: "missing" };
 
-  // Límite del plan free: bloquea solo si es una alerta NUEVA y ya llegó al tope.
+  // Límite del plan: bloquea solo si es una alerta NUEVA y ya llegó al tope.
   const existing = await prisma.alert.findUnique({
     where: { chatId_productId: { chatId: String(chatId), productId } },
   });
-  if (!existing && !(await isPremium(chatId))) {
-    const used = await prisma.alert.count({ where: { chatId: String(chatId) } });
-    if (used >= FREE_ALERT_LIMIT) {
-      return { error: "limit", limit: FREE_ALERT_LIMIT, used };
+  if (!existing) {
+    const plan = await getPlan(chatId);
+    if (!plan.premium && plan.used >= plan.limit) {
+      return { error: "limit", limit: plan.limit, used: plan.used };
     }
   }
 
