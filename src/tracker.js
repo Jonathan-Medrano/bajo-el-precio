@@ -42,7 +42,7 @@ export async function trackerCycle({ limit = 200 } = {}) {
     where: {
       OR: [
         { lastScraped: { lt: twoHoursAgo } },
-        { pricePoints: { none: {} } },
+        { prices: { none: {} } },
       ],
     },
     orderBy: [
