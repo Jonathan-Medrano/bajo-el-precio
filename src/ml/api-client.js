@@ -47,8 +47,6 @@ async function mlFetch(path) {
   }
 
   if (res.status === 401) {
-    // Token rejected or missing — invalidate cached token and abort (don't retry without token)
-    _appToken = null;
     throw new AbortError(`[ml-api] 401 on ${path} — check ML_CLIENT_ID/ML_CLIENT_SECRET`);
   }
 
