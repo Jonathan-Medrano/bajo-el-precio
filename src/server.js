@@ -9,6 +9,7 @@ import { getPlan, grantPremium } from "./plans.js";
 import { createApiKey, apiKeyMiddleware } from "./apikeys.js";
 import { renderProductPage, renderSitemap } from "./seo-page.js";
 import { mpWebhookHandler } from "./mercadopago.js";
+import { telegramWebhookHandler } from "./bot.js";
 import { renderOgImage } from "./og-image.js";
 import { prisma } from "./db.js";
 
@@ -195,6 +196,8 @@ app.post("/api/keys", requireAdmin, async (req, res) => {
 });
 // MercadoPago IPN: activa Premium cuando un pago es aprobado.
 app.post("/webhooks/mp", mpWebhookHandler);
+// Telegram bot webhook: /start, /mis_alertas, /borrar
+app.post("/webhooks/telegram", telegramWebhookHandler);
 // Seed del catálogo con productos trending de ML (dispara en background).
 app.post("/admin/seed-catalog", requireAdmin, async (_req, res) => {
   res.json({ ok: true, message: "seeding iniciado en background" });

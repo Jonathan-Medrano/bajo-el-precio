@@ -71,7 +71,17 @@ curl -X POST https://bajoelprecio.fly.dev/admin/seed-catalog \
   -H "x-admin-token: TU_ADMIN_TOKEN"
 ```
 
-## 10. MercadoPago (Premium)
+## 10. Registrar webhook del bot de Telegram
+
+```bash
+curl "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook" \
+  -d "url=https://bajoelprecio.fly.dev/webhooks/telegram"
+# → {"ok":true,"description":"Webhook was set"}
+```
+
+Esto hace que el bot reciba /start, /mis_alertas y /borrar de forma independiente.
+
+## 11. MercadoPago (Premium)
 
 1. Crear link de pago en mercadopago.com.ar con `external_reference = {chatId}`
 2. Configurar webhook: IPN URL = `https://bajoelprecio.fly.dev/webhooks/mp`
