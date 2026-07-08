@@ -12,6 +12,7 @@ import { mpWebhookHandler } from "./mercadopago.js";
 import { telegramWebhookHandler } from "./bot.js";
 import { renderOgImage } from "./og-image.js";
 import { prisma } from "./db.js";
+import { sendChannel } from "./telegram.js";
 
 const baseUrlOf = (req) => process.env.PUBLIC_URL || `${req.protocol}://${req.get("host")}`;
 
@@ -800,4 +801,34 @@ app.listen(port, () => {
     runTracker();
     setInterval(runTracker, intervalMs);
   }, 5 * 60_000);
+
+  // Daily digest: postea los top 3 deals al canal a las 09:00 ART (12:00 UTC)
+  const digestEnabled = process.env.ALERTS_ENABLED === "1" && process.env.TELEGRAM_CHANNEL;
+  if (digestEnabled) {
+    const scheduleDigest = () => {
+      const now = new Date();
+      const nextUTC12 = new Date(now);
+      nextUTC12.setUTCHours(12, 0, 0, 0);
+      if (nextUTC12 <= now) nextUTC12.setUTCDate(nextUTC12.getUTCDate() + 1);
+      const msUntil = nextUTC12 - now;
+      setTimeout(async () => {
+        try {
+          const deals = await fetchDeals();
+          if (!deals.length) { scheduleDigest(); return; }
+          const fmt = n => "$" + Math.round(n).toLocaleString("es-AR");
+          const lines = deals.slice(0, 3).map((d, i) =>
+            `${i + 1}. <b>${d.title.slice(0, 60)}</b>\n   ${fmt(d.current)} (-${d.savingPct}% vs promedio)\n   <a href="${process.env.PUBLIC_URL}/p/${d.id}">Ver historial</a>`
+          );
+          const text = `🔥 <b>Mejores ofertas del día</b>\n\n${lines.join("\n\n")}\n\n<a href="${process.env.PUBLIC_URL}/deals">Ver todas las ofertas →</a>`;
+          await sendChannel(text).catch(e => console.warn("[digest]", e.message));
+          console.log("[digest] enviado");
+        } catch (e) {
+          console.warn("[digest] error:", e.message);
+        }
+        scheduleDigest();
+      }, msUntil);
+      console.log(`[digest] próximo en ${Math.round(msUntil / 60_000)}min`);
+    };
+    scheduleDigest();
+  }
 });

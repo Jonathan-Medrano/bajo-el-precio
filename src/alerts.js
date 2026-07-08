@@ -37,6 +37,19 @@ export async function onNewPrice(productId, newPrice) {
         `🔗 <a href="${link}">Comprar en MercadoLibre</a>`;
       const markup = { inline_keyboard: [[{ text: "📊 Ver historial", url: `${WEB_URL}/?id=${product.id}` }]] };
       await fire("CANAL", text, () => sendChannel(text, markup));
+
+      // Tweet automatico si la bajada es significativa (>=10%)
+      if (pct >= 10) {
+        const { tweetPriceDrop } = await import("./twitter.js");
+        await tweetPriceDrop({
+          title: product.title,
+          currentPrice: newPrice,
+          prevMin,
+          savingPct: pct,
+          productId,
+          webUrl: `${WEB_URL}/p/${productId}`,
+        }).catch(e => console.warn("[twitter]", e.message));
+      }
     }
 
     // --- Alertas por usuario (DM) ---
