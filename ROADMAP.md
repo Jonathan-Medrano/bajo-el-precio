@@ -24,6 +24,7 @@ Tracker de precios #1 de MercadoLibre Argentina.
 - Sistema de referidos: `/ref/:chatId` → deep link Telegram, +1 alerta por referido ✅
 - Sitemap con URLs de categorías + `Cache-Control` en `/p/:id` ✅
 - Tracker fix definitivo: campo `lastTracked` (solo el tracker lo setea) ✅
+- **BLOCKER PRINCIPAL**: `ML_CLIENT_SECRET` en Fly secrets — sin esto el tracker no puede leer precios (ML PolicyAgent bloquea IPs de Fly.io sin auth OAuth)
 - **Pendiente**: `MP_ACCESS_TOKEN` + `MP_WEBHOOK_SECRET` en Fly secrets para activar pagos
 - **Pendiente**: `TWITTER_API_KEY/SECRET` + `TWITTER_ACCESS_TOKEN/SECRET` para auto-tweet
 - **Pendiente**: `ALERTS_ENABLED=1` + `TELEGRAM_CHANNEL=@bajoelprecio_ar` para canal
@@ -106,14 +107,14 @@ reales y los deals son vacíos. Todo lo demás depende de esto.
 - [x] Meta tags por categoría ✅
 
 ### 4.3 SEO técnico
-- [ ] Structured data `Product` + `Offer` en `/p/:id`
-- [ ] `robots.txt` permisivo para las páginas públicas
-- [ ] Cache HTTP en `/p/:id`: `Cache-Control: public, max-age=300`
+- [x] Structured data `Product` + `Offer` (JSON-LD) en `/p/:id` ✅
+- [x] `robots.txt` permisivo para las páginas públicas ✅
+- [x] Cache HTTP en `/p/:id`: `Cache-Control: public, max-age=300` ✅
 
 ### 4.4 API pública (monetizada)
-- [ ] Documentar `GET /api/product/:id` como API pública
-- [ ] Rate limit en free: 100 req/día por IP
-- [ ] Ruta `GET /developers` con docs mínimos y link a plan Pro (API sin límite)
+- [x] `GET /v1/product/:id` y `GET /v1/products` con x-api-key ✅
+- [x] Rate limit en free: 100 req/día por API key ✅
+- [x] `GET /developers` con docs, ejemplos de curl y pricing ✅
 
 **Entregable**: 10.000+ productos en DB, páginas de categoría funcionando, indexadas en Google.
 
@@ -133,8 +134,8 @@ reales y los deals son vacíos. Todo lo demás depende de esto.
 - [ ] **ACCIÓN REQUERIDA**: `fly secrets set ALERTS_ENABLED=1 TELEGRAM_CHANNEL=@bajoelprecio_ar`
 
 ### 5.3 Compartir historial
-- [ ] Botón en `/p/:id`: "Ver precio antes del Hot Sale" → enlace con OG card
-- [ ] OG image (`/og/:id.png`) ya existe — verificar que muestre gráfico + precio
+- [x] Botones de share en `/p/:id`: WhatsApp, X/Twitter, copiar link ✅
+- [x] OG image `/og/:id.png` con SVG sparkline, precio actual y badge de bajada ✅
 
 ### 5.4 Referidos (simple)
 - [x] `/ref/:chatId` → redirect a Telegram deep link `?start=ref_CHATID` ✅

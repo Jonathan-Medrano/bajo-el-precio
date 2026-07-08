@@ -303,6 +303,8 @@ app.get("/deals", async (req, res) => {
       <div class="footer-links">
         <a href="/">Inicio</a>
         <a href="/dashboard">Mis alertas</a>
+        <a href="/deals">Deals</a>
+        <a href="/developers">API</a>
         <a href="https://t.me/bajoelprecio_bot" target="_blank" rel="noopener">Bot Telegram</a>
         <a href="/sitemap.xml">Sitemap</a>
       </div>
@@ -678,6 +680,158 @@ app.get("/debug/ml-status", async (_req, res) => {
   } catch (e) {
     res.json({ ok: false, authenticated: hasToken, error: e.message });
   }
+});
+
+// --- Developers landing page --------------------------------------------------
+app.get("/developers", (req, res) => {
+  const baseUrl = baseUrlOf(req);
+  res.set("Content-Type", "text/html; charset=utf-8").send(`<!DOCTYPE html>
+<html lang="es-AR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>API de Precios MercadoLibre | Bajó el Precio — Developers</title>
+  <meta name="description" content="API de historial de precios de MercadoLibre para Argentina. 100 requests/día gratis. Plan Pro sin límite.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root{--brand:#e64c1e;--brand-dark:#c03d18;--text:#111827;--text-soft:#6b7280;--bg:#f9fafb;--surface:#fff;--border:#e5e7eb;--radius:12px}
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.6;-webkit-font-smoothing:antialiased}
+    a{color:var(--brand);text-decoration:none}
+    a:hover{text-decoration:underline}
+    .container{max-width:860px;margin:0 auto;padding:0 20px}
+    .nav{background:var(--surface);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:100}
+    .nav-inner{display:flex;align-items:center;justify-content:space-between;height:60px}
+    .nav-logo{display:flex;align-items:center;gap:10px;font-weight:700;font-size:16px;color:var(--text);text-decoration:none}
+    .nav-link{padding:7px 14px;border-radius:8px;font-size:14px;font-weight:500;color:var(--text-soft)}
+    .nav-link:hover{text-decoration:none;background:var(--bg);color:var(--text)}
+    .hero{padding:64px 0 48px}
+    .hero h1{font-size:clamp(28px,5vw,48px);font-weight:800;letter-spacing:-.02em;margin-bottom:16px}
+    .hero p{font-size:18px;color:var(--text-soft);max-width:600px;margin-bottom:32px}
+    .pill{display:inline-block;background:#fff3ef;color:var(--brand);font-size:13px;font-weight:600;padding:4px 14px;border-radius:999px;margin-bottom:20px}
+    .plans{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin:48px 0}
+    @media(max-width:600px){.plans{grid-template-columns:1fr}}
+    .plan{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:28px}
+    .plan.pro{border-color:var(--brand);background:#fff8f6}
+    .plan h3{font-size:18px;font-weight:700;margin-bottom:6px}
+    .plan .price{font-size:32px;font-weight:800;margin:12px 0 4px;color:var(--text)}
+    .plan .price-sub{font-size:13px;color:var(--text-soft);margin-bottom:16px}
+    .plan ul{list-style:none;font-size:14px;color:var(--text-soft);display:flex;flex-direction:column;gap:8px}
+    .plan ul li::before{content:"✓ ";color:#059669;font-weight:700}
+    .btn{display:inline-block;padding:12px 24px;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;text-decoration:none}
+    .btn-brand{background:var(--brand);color:#fff;margin-top:20px}
+    .btn-brand:hover{background:var(--brand-dark);text-decoration:none}
+    .btn-ghost{border:1px solid var(--border);color:var(--text);margin-top:20px}
+    .btn-ghost:hover{background:var(--bg);text-decoration:none}
+    .section{margin:48px 0}
+    .section h2{font-size:22px;font-weight:700;margin-bottom:16px}
+    pre{background:#1e1e2e;color:#cdd6f4;border-radius:var(--radius);padding:20px;overflow-x:auto;font-family:'JetBrains Mono',monospace;font-size:13px;line-height:1.6;margin:12px 0}
+    code{font-family:'JetBrains Mono',monospace;font-size:13px;background:#f3f4f6;padding:2px 6px;border-radius:4px}
+    .endpoint{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:16px}
+    .method{display:inline-block;background:#dbeafe;color:#1d4ed8;font-size:12px;font-weight:700;padding:2px 8px;border-radius:4px;font-family:'JetBrains Mono',monospace}
+    .endpoint h4{font-size:15px;font-weight:600;margin:8px 0 4px;font-family:'JetBrains Mono',monospace;color:var(--brand-dark)}
+    .endpoint p{font-size:14px;color:var(--text-soft);margin-bottom:12px}
+    footer{padding:40px 0;border-top:1px solid var(--border);text-align:center;font-size:13px;color:var(--text-soft);margin-top:48px}
+  </style>
+</head>
+<body>
+<nav class="nav">
+  <div class="container nav-inner">
+    <a class="nav-logo" href="/">
+      <svg viewBox="0 0 36 36" width="28" height="28" aria-hidden="true"><rect width="36" height="36" rx="9" fill="#e64c1e"/><polyline points="7,11 14,17 21,13 28,24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M28 24 L28 19 M28 24 L23 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Bajó el Precio
+    </a>
+    <a class="nav-link" href="/">← Volver</a>
+  </div>
+</nav>
+<main>
+<div class="container">
+  <div class="hero">
+    <div class="pill">API pública Beta</div>
+    <h1>Historial de precios ML<br>en tu app</h1>
+    <p>Accedé a series temporales reales de precios de MercadoLibre Argentina. Sin scraping, sin esperas. Datos acumulados desde 2025.</p>
+  </div>
+
+  <div class="plans">
+    <div class="plan">
+      <h3>Free</h3>
+      <div class="price">$0</div>
+      <div class="price-sub">para siempre</div>
+      <ul>
+        <li>100 requests / día</li>
+        <li>Historial completo</li>
+        <li>Stats: min / max / avg</li>
+        <li>Sin tarjeta</li>
+      </ul>
+      <a class="btn btn-ghost" href="https://t.me/bajoelprecio_bot" target="_blank" rel="noopener">Conseguir API key gratis →</a>
+    </div>
+    <div class="plan pro">
+      <h3>Pro</h3>
+      <div class="price">$4.990 <span style="font-size:18px;font-weight:500">ARS</span></div>
+      <div class="price-sub">/ mes · sin límite de requests</div>
+      <ul>
+        <li>Requests ilimitados</li>
+        <li>Webhook de cambio de precio</li>
+        <li>SLA de respuesta</li>
+        <li>Soporte directo</li>
+      </ul>
+      <a class="btn btn-brand" href="https://t.me/bajoelprecio_bot" target="_blank" rel="noopener">Contactar para Pro →</a>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Endpoints</h2>
+
+    <div class="endpoint">
+      <span class="method">GET</span>
+      <h4>/v1/product/:id</h4>
+      <p>Historial completo de un producto por su ID de MercadoLibre.</p>
+      <pre>curl ${baseUrl}/v1/product/MLA47675165 \\
+  -H "x-api-key: km_tu_api_key"</pre>
+      <pre>{
+  "id": "MLA47675165",
+  "title": "Celular Moto G15 256gb 8ram",
+  "stats": { "last": 399999, "min": 379000, "max": 449000, "avg": 412000, "count": 12 },
+  "history": [
+    { "price": 399999, "seenAt": "2025-07-08T22:37:45.000Z" },
+    { "price": 410000, "seenAt": "2025-07-07T16:22:11.000Z" }
+  ]
+}</pre>
+    </div>
+
+    <div class="endpoint">
+      <span class="method">GET</span>
+      <h4>/v1/products</h4>
+      <p>Lista de todos los productos rastreados (IDs + categoría + cantidad de datapoints).</p>
+      <pre>curl ${baseUrl}/v1/products \\
+  -H "x-api-key: km_tu_api_key"</pre>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Autenticación</h2>
+    <p>Enviá tu API key en el header <code>x-api-key</code> en cada request. También podés pasarla como query param: <code>?api_key=km_...</code></p>
+    <p style="margin-top:12px">Para obtener tu key gratuita, enviá <code>/start</code> al bot de Telegram y pedísela.</p>
+  </div>
+
+  <div class="section">
+    <h2>Rate limits</h2>
+    <p>El plan gratuito tiene un límite de 100 requests por día (rolling 24h). Los headers de respuesta incluyen:</p>
+    <pre>X-RateLimit-Limit: 100
+X-RateLimit-Remaining: 87</pre>
+    <p style="margin-top:12px">Al superar el límite se devuelve <code>HTTP 429</code> con un JSON explicativo.</p>
+  </div>
+</div>
+</main>
+<footer>
+  <div class="container">
+    <a href="/">Bajó el Precio</a> · <a href="https://t.me/bajoelprecio_bot" target="_blank" rel="noopener">Telegram</a> · <a href="/deals">Deals</a>
+    <div style="margin-top:8px">Datos de MercadoLibre Argentina. No afiliado con MercadoLibre S.A.</div>
+  </div>
+</footer>
+</body>
+</html>`);
 });
 
 // --- API pública B2B v1 (gated por x-api-key + cuota) ------------------------
