@@ -1,0 +1,64 @@
+app = "bajoelprecio"
+primary_region = "gru"   # São Paulo — mejor latencia para Argentina
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "3000"
+  NODE_ENV = "production"
+  HEADLESS = "1"
+  ALERTS_ENABLED = "1"
+  ML_SITE = "MLA"
+  TRACK_INTERVAL_HOURS = "6"
+
+# Secrets (setar via fly secrets):
+#   DATABASE_URL    → Supabase connection string (pooler)
+#   DIRECT_URL      → Supabase direct connection (para migrations)
+#   TELEGRAM_BOT_TOKEN
+#   TELEGRAM_CHANNEL
+#   ML_CLIENT_ID
+#   ML_CLIENT_SECRET
+#   ML_AFFILIATE_WORD
+#   ML_AFFILIATE_TOOL
+#   ADMIN_TOKEN
+#   FREE_ALERT_LIMIT
+#   MP_ACCESS_TOKEN    → MercadoPago (para webhook de premium)
+#   MP_WEBHOOK_SECRET
+#   PUBLIC_URL         → https://bajoelprecio.fly.dev (o dominio propio)
+#   WEB_URL            → igual que PUBLIC_URL
+
+[[services]]
+  protocol = "tcp"
+  internal_port = 3000
+
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+
+  [services.concurrency]
+    type = "requests"
+    hard_limit = 50
+    soft_limit = 25
+
+  [[services.http_checks]]
+    interval = "30s"
+    timeout = "10s"
+    grace_period = "15s"
+    method = "GET"
+    path = "/api/health"
+
+# Playwright necesita memoria real. 1gb es el mínimo viable.
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1gb"
+
+# Volumen para el perfil del browser Playwright (evita re-login en cada restart).
+# Crear con: fly volumes create browser_profile --size 1 --region gru
+[mounts]
+  source = "browser_profile"
+  destination = "/app/.browser"

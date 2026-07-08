@@ -1,0 +1,13 @@
+server*.log
+tracker*.log
+*.err
+*.log
+node_modules/
+.env
+.env.*
+!.env.example
+.browser/
+.browser-*/
+.pgdata/
+dist/
+build/

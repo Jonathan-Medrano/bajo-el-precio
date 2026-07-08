@@ -1,0 +1,27 @@
+{
+  "name": "keepa-ml-backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Historial de precios de MercadoLibre — backend (motor de datos + API). Stack: Node + Prisma + Postgres (Supabase) + Fly.io.",
+  "scripts": {
+    "dev": "node --env-file=.env --watch src/server.js",
+    "track": "node --env-file=.env src/tracker.js",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:studio": "prisma studio"
+  },
+  "engines": {
+    "node": ">=20.12.0"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.19.3",
+    "@resvg/resvg-js": "^2.6.2",
+    "embedded-postgres": "^18.4.0-beta.17",
+    "express": "^5.2.1",
+    "p-queue": "^9.3.1",
+    "p-retry": "^8.0.0",
+    "playwright": "^1.61.1",
+    "prisma": "^6.19.3"
+  }
+}

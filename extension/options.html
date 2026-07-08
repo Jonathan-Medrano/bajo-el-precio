@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="es-AR">
+<head>
+  <meta charset="UTF-8">
+  <title>Opciones — Bajó el Precio</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 480px; margin: 32px auto; padding: 0 20px; color: #111827; }
+    h1 { font-size: 18px; font-weight: 700; margin-bottom: 4px; }
+    p { font-size: 14px; color: #6b7280; margin: 0 0 24px; }
+    label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+    input { width: 100%; padding: 10px 12px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 14px; font-family: inherit; outline: none; box-sizing: border-box; }
+    input:focus { border-color: #e64c1e; }
+    .btn { margin-top: 12px; padding: 10px 20px; background: #e64c1e; color: #fff; border: none; border-radius: 8px; font-size: 14px; font-weight: 700; cursor: pointer; font-family: inherit; }
+    .btn:hover { background: #c03d18; }
+    #msg { margin-top: 10px; font-size: 13px; color: #059669; min-height: 18px; }
+  </style>
+</head>
+<body>
+  <h1>⚙️ Opciones de Bajó el Precio</h1>
+  <p>Configurá la URL del servidor. Dejá el valor por defecto si usás la versión pública.</p>
+  <label for="api-url">URL del servidor API</label>
+  <input id="api-url" type="url" placeholder="https://bajoelprecio.fly.dev">
+  <button class="btn" id="save-btn">Guardar</button>
+  <div id="msg"></div>
+  <script>
+    const DEFAULT = "https://bajoelprecio.fly.dev";
+    const input = document.getElementById("api-url");
+    const msg = document.getElementById("msg");
+    chrome.storage.sync.get({ api: DEFAULT }, ({ api }) => { input.value = api; });
+    document.getElementById("save-btn").addEventListener("click", () => {
+      const api = input.value.trim().replace(/\/$/, "") || DEFAULT;
+      chrome.storage.sync.set({ api }, () => { msg.textContent = "✅ Guardado."; setTimeout(() => msg.textContent = "", 2000); });
+    });
+  </script>
+</body>
+</html>

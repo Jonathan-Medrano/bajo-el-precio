@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="es-AR">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body { font-family: system-ui, sans-serif; width: 260px; padding: 16px; margin: 0; background: #fff; color: #111827; }
+    h2 { font-size: 15px; font-weight: 700; margin: 0 0 4px; display: flex; align-items: center; gap: 8px; }
+    h2 svg { flex-shrink: 0; }
+    p { font-size: 12px; color: #6b7280; margin: 0 0 16px; line-height: 1.5; }
+    .btn { display: block; width: 100%; padding: 10px; border-radius: 8px; font-size: 13px; font-weight: 600; text-align: center; text-decoration: none; border: none; cursor: pointer; font-family: inherit; }
+    .btn-primary { background: #e64c1e; color: #fff; margin-bottom: 8px; }
+    .btn-secondary { background: #f3f4f6; color: #374151; }
+    .status { font-size: 11px; color: #9ca3af; text-align: center; margin-top: 12px; }
+  </style>
+</head>
+<body>
+  <h2>
+    <svg width="20" height="20" viewBox="0 0 36 36"><rect width="36" height="36" rx="9" fill="#e64c1e"/><polyline points="7,11 14,17 21,13 28,24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M28 24 L28 19 M28 24 L23 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    Bajó el Precio
+  </h2>
+  <p>Historial real de precios de MercadoLibre. Abrí una página de producto para ver el historial inline.</p>
+  <a class="btn btn-primary" href="https://bajoelprecio.fly.dev" target="_blank">Abrir Bajó el Precio →</a>
+  <a class="btn btn-secondary" href="https://t.me/bajoelprecio_bot" target="_blank">Bot de Telegram</a>
+  <div class="status" id="status">Cargando...</div>
+  <script>
+    chrome.storage.sync.get({ api: "https://bajoelprecio.fly.dev" }, ({ api }) => {
+      document.getElementById("status").textContent = `Conectado a: ${api.replace("https://", "")}`;
+    });
+  </script>
+</body>
+</html>

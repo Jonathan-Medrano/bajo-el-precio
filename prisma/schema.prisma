@@ -1,0 +1,77 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+/// Un producto de MercadoLibre que estamos trackeando.
+model Product {
+  id          String       @id // ID de catálogo de ML (ej: MLAU3829685373)
+  title       String
+  url         String?
+  image       String?
+  category    String?
+  brand       String?
+  // Cantidad de veces que alguien lo consultó (prioriza el tracker).
+  queries     Int          @default(0)
+  firstSeen   DateTime     @default(now())
+  lastScraped DateTime     @updatedAt
+  prices      PricePoint[]
+  alerts      Alert[]
+
+  @@index([lastScraped])
+}
+
+/// Un usuario del bot (identificado por su chat de Telegram) y su plan.
+model Subscriber {
+  chatId       String    @id // chat de Telegram
+  plan         String    @default("free") // free | premium
+  premiumUntil DateTime? // si premium, hasta cuándo (null = sin vencimiento)
+  createdAt    DateTime  @default(now())
+}
+
+/// Una API key B2B para consultar el historial de precios programáticamente.
+model ApiKey {
+  id            Int      @id @default(autoincrement())
+  key           String   @unique
+  name          String // a quién pertenece / para qué
+  plan          String   @default("free") // free | pro | business
+  dailyQuota    Int      @default(100) // requests por día
+  requestsToday Int      @default(0)
+  lastReset     DateTime @default(now()) // cuándo se reseteó el contador diario
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+
+  @@index([key])
+}
+
+/// Una suscripción de un usuario a las bajas de precio de un producto (alerta por DM).
+model Alert {
+  id                Int      @id @default(autoincrement())
+  chatId            String // chat de Telegram del usuario
+  productId         String
+  product           Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  // Precio objetivo: avisar cuando el precio sea <= a esto. Si es null, avisa en cada nuevo mínimo histórico.
+  targetPrice       Int?
+  // Último precio por el que ya avisamos (para no spamear con el mismo precio).
+  lastNotifiedPrice Int?
+  createdAt         DateTime @default(now())
+
+  @@unique([chatId, productId])
+  @@index([productId])
+}
+
+/// Un precio observado de un producto en un momento dado (la serie temporal = el gráfico).
+model PricePoint {
+  id        Int      @id @default(autoincrement())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  price     Int // en pesos, entero
+  seenAt    DateTime @default(now())
+
+  @@index([productId, seenAt])
+}

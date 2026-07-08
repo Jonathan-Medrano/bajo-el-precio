@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "Bajó el Precio — Historial de MercadoLibre",
+  "version": "1.0.0",
+  "description": "Ve el historial de precios y si conviene comprar, directo en la página del producto de MercadoLibre. Sin registro, gratis.",
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.mercadolibre.com.ar/*",
+        "https://articulo.mercadolibre.com.ar/*"
+      ],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://bajoelprecio.fly.dev/*",
+    "https://*.mercadolibre.com.ar/*"
+  ],
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": false
+  },
+  "action": {
+    "default_title": "Bajó el Precio",
+    "default_popup": "popup.html"
+  },
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  }
+}
