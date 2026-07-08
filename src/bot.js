@@ -1,4 +1,4 @@
-import { listAlerts, unsubscribeAlert } from "./service.js";
+import { listAlerts, unsubscribeAlert, subscribeAlert, getHistory } from "./service.js";
 import { sendUser } from "./telegram.js";
 import { getPlan } from "./plans.js";
 import { createPaymentPreference } from "./mercadopago.js";
@@ -115,6 +115,48 @@ async function handleUpdate(update) {
     } catch {
       await sendUser(chatId, "No pude eliminar la alerta. Verificá el ID con /mis_alertas");
     }
+    return;
+  }
+
+  // Handle MercadoLibre URLs sent directly to the bot
+  const mlUrlMatch = text.match(/mercadolibre\.com\.ar\/[^\s]+(?:MLA\d+|MLAU[\w]+)/i)
+    || text.match(/(MLA[U]?\d+)/i);
+  if (mlUrlMatch) {
+    const idMatch = text.match(/\b(MLAU?[\w\d]+\d)/i);
+    if (!idMatch) {
+      await sendUser(chatId, "No pude encontrar el ID del producto. Mandame la URL completa de MercadoLibre.");
+      return;
+    }
+    const productId = idMatch[1].toUpperCase();
+    const data = await getHistory(productId);
+    if (data.error === "not_found") {
+      await sendUser(chatId,
+        `🔍 <b>Producto no rastreado todavía</b>\n\n` +
+        `ID: <code>${productId}</code>\n\n` +
+        `Todavía no tenemos historial de este producto. Agregalo desde la web para empezar a rastrearlo:\n` +
+        `${PUBLIC_URL}/p/${productId}`
+      );
+      return;
+    }
+    const fmt = (n) => "$" + Number(n).toLocaleString("es-AR");
+    const statsLine = data.stats.count
+      ? `Precio actual: <b>${fmt(data.stats.last)}</b> · Mínimo: ${fmt(data.stats.min)} · Máximo: ${fmt(data.stats.max)} · ${data.stats.count} registros`
+      : "Juntando historial…";
+    const result = await subscribeAlert({ chatId, productId });
+    let alertLine;
+    if (result.error === "limit") {
+      alertLine = `\n\n⚠️ Llegaste al límite de ${result.limit} alertas. Usá /premium para más.`;
+    } else if (result.created) {
+      alertLine = `\n\n🔔 <b>Alerta activada.</b> Te aviso cuando baje de precio.`;
+    } else {
+      alertLine = `\n\nYa tenías una alerta para este producto.`;
+    }
+    await sendUser(chatId,
+      `📦 <b>${data.product.title.slice(0, 80)}</b>\n\n` +
+      statsLine +
+      `\n\n🌐 <a href="${PUBLIC_URL}/p/${productId}">Ver historial completo</a>` +
+      alertLine
+    );
     return;
   }
 }
