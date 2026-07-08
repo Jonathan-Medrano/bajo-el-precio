@@ -1,7 +1,7 @@
 import { chromium } from "playwright";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { fetchItem, fetchItemsBatch, fetchCatalogBestPrice } from "./api-client.js";
+import { fetchItem, fetchCatalogBestPrice } from "./api-client.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const USER_DATA_DIR = join(__dirname, "..", "..", process.env.BROWSER_PROFILE || ".browser");
@@ -73,28 +73,32 @@ export async function readProductPriceFromApi(productId) {
 }
 
 /**
- * Batch: lee precios de hasta 20 items MLA* en una sola request.
- * Retorna un Map de { productId → { price, title, image } } para los que tuvieron precio.
+ * Reads prices for MLA* items using individual /items/{id} calls (parallel, queue-rate-limited).
+ * The batch endpoint GET /items?ids=... requires OAuth — use single-item API instead.
+ * Returns a Map of { productId → { price, title, image, cheapestUrl } }.
  */
 export async function readItemsBatchFromApi(itemIds) {
   const results = new Map();
   if (!itemIds.length) return results;
 
-  const CHUNK = 20;
-  for (let i = 0; i < itemIds.length; i += CHUNK) {
-    const chunk = itemIds.slice(i, i + CHUNK);
-    try {
-      const batch = await fetchItemsBatch(chunk);
-      for (const entry of batch ?? []) {
-        if (entry.code === 200 && entry.body?.price) {
-          const b = entry.body;
-          results.set(b.id, { price: Math.round(b.price), title: b.title ?? null, image: b.thumbnail ?? null });
+  await Promise.all(
+    itemIds.map(async (id) => {
+      try {
+        const item = await fetchItem(id);
+        if (item?.price) {
+          results.set(id, {
+            price: Math.round(item.price),
+            title: item.title ?? null,
+            image: item.thumbnail ?? null,
+            cheapestUrl: item.permalink ?? null,
+          });
         }
+      } catch {
+        // 404 / blocked — tracker falls back to Playwright
       }
-    } catch {
-      // batch failed — tracker will fall back per-item via Playwright
-    }
-  }
+    })
+  );
+
   return results;
 }
 
