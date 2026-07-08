@@ -242,6 +242,13 @@
     .modal-actions { display: flex; gap: 10px; }
     .modal-close { position: absolute; right: 16px; top: 16px; background: none; border: none; font-size: 20px; cursor: pointer; color: var(--text-soft); }
 
+    /* ── Category pills ── */
+    .cats-section { padding: 32px 0 0; }
+    .cats-strip { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+    .cat-pill { display: inline-flex; align-items: center; gap: 7px; padding: 9px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 999px; font-size: 13px; font-weight: 600; color: var(--text); transition: background 80ms, border-color 80ms, color 80ms; }
+    .cat-pill:hover { background: var(--brand-bg); border-color: var(--brand); color: var(--brand); }
+    .cat-pill .cat-emoji { font-size: 15px; }
+
     /* ── Utils ── */
     .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
     @media (max-width: 600px) {
@@ -268,6 +275,7 @@
       Bajó el Precio
     </a>
     <div class="nav-links">
+      <a class="nav-link" href="/deals">🔥 Ofertas</a>
       <a class="nav-link" href="/dashboard">Mis alertas</a>
       <a class="nav-link cta" href="https://t.me/bajoelprecio_bot" target="_blank" rel="noopener">
         Telegram →
@@ -323,6 +331,23 @@
           Alertarme cuando baje
         </button>
       </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Categories ───────────────────────────────────── -->
+<section class="cats-section">
+  <div class="container">
+    <div class="section-label">Explorar por categoría</div>
+    <div class="cats-strip">
+      <a class="cat-pill" href="/deals/gaming"><span class="cat-emoji">🎮</span> Gaming</a>
+      <a class="cat-pill" href="/deals/celulares"><span class="cat-emoji">📱</span> Celulares</a>
+      <a class="cat-pill" href="/deals/notebooks"><span class="cat-emoji">💻</span> Notebooks</a>
+      <a class="cat-pill" href="/deals/televisores"><span class="cat-emoji">📺</span> Televisores</a>
+      <a class="cat-pill" href="/deals/auriculares"><span class="cat-emoji">🎧</span> Auriculares</a>
+      <a class="cat-pill" href="/deals/tablets"><span class="cat-emoji">📟</span> Tablets</a>
+      <a class="cat-pill" href="/deals/electrodomésticos"><span class="cat-emoji">🏠</span> Electrodomésticos</a>
+      <a class="cat-pill" href="/deals/consolas"><span class="cat-emoji">🕹️</span> Consolas</a>
     </div>
   </div>
 </section>
@@ -437,6 +462,8 @@
         Bajó el Precio
       </div>
       <div class="footer-links">
+        <a href="/deals">🔥 Ofertas</a>
+        <a href="/premium">Plan Pro</a>
         <a href="/dashboard">Mis alertas</a>
         <a href="https://t.me/bajoelprecio_bot" target="_blank" rel="noopener">Bot Telegram</a>
         <a href="/sitemap.xml">Sitemap</a>
