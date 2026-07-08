@@ -1,3 +1,4 @@
+set-fly-secrets*.ps1
 server*.log
 tracker*.log
 *.err

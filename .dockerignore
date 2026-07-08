@@ -1,6 +1,9 @@
 node_modules
 .browser
+.browser-*
+.pgdata
 .env
+.env.*
 *.log
 tracker-*.log
 server*.log
@@ -9,3 +12,9 @@ npm-debug.log*
 .gitignore
 README.md
 extension/
+scripts/
+web/
+demo.png
+*.png
+*.zip
+deploy.md
