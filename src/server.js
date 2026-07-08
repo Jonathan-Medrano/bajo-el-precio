@@ -667,6 +667,17 @@ app.post("/admin/run-tracker", requireAdmin, async (_req, res) => {
   res.json({ ok: true, message: "tracker iniciado en background" });
   import("./tracker.js").then(({ trackerCycle }) => trackerCycle()).catch(console.error);
 });
+// Debug: llama la API de ML con un producto específico y devuelve la respuesta raw.
+app.get("/admin/debug-ml/:id", requireAdmin, async (req, res) => {
+  const id = req.params.id;
+  try {
+    const r = await fetch(`https://api.mercadolibre.com/items/${id}`);
+    const text = await r.text();
+    res.json({ status: r.status, body: text.slice(0, 500) });
+  } catch (e) {
+    res.json({ error: e.message });
+  }
+});
 
 // --- API pública B2B v1 (gated por x-api-key + cuota) ------------------------
 app.get("/v1/product/:id", apiKeyMiddleware, async (req, res) => {
