@@ -356,12 +356,20 @@ footer a{color:var(--text-soft)}
 }
 
 /** sitemap.xml — todas las URLs de producto para Google. */
+const DEAL_CATEGORIES = ["gaming", "celulares", "notebooks", "televisores", "auriculares", "tablets", "electrodomesticos", "consolas"];
+
 export function renderSitemap(products, baseUrl) {
-  const urls = products
+  const today = new Date().toISOString().slice(0, 10);
+  const staticUrls = [
+    `<url><loc>${esc(baseUrl)}/</loc><changefreq>daily</changefreq><priority>1.0</priority></url>`,
+    `<url><loc>${esc(baseUrl)}/deals</loc><changefreq>daily</changefreq><priority>0.9</priority></url>`,
+    ...DEAL_CATEGORIES.map(c => `<url><loc>${esc(baseUrl)}/deals/${esc(c)}</loc><lastmod>${today}</lastmod><changefreq>daily</changefreq><priority>0.8</priority></url>`),
+  ].join("");
+  const productUrls = products
     .map(
       (p) =>
-        `<url><loc>${esc(baseUrl)}/p/${esc(p.id)}</loc><lastmod>${new Date(p.lastScraped ?? Date.now()).toISOString().slice(0, 10)}</lastmod><changefreq>daily</changefreq></url>`
+        `<url><loc>${esc(baseUrl)}/p/${esc(p.id)}</loc><lastmod>${new Date(p.lastScraped ?? Date.now()).toISOString().slice(0, 10)}</lastmod><changefreq>daily</changefreq><priority>0.6</priority></url>`
     )
     .join("");
-  return `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>${esc(baseUrl)}/</loc></url>${urls}</urlset>`;
+  return `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${staticUrls}${productUrls}</urlset>`;
 }

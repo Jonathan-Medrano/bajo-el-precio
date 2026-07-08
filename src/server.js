@@ -82,6 +82,7 @@ app.get("/p/:id", async (req, res) => {
   const baseUrl = baseUrlOf(req);
   const appUrl = process.env.WEB_URL || baseUrl;
   res.set("Content-Type", "text/html; charset=utf-8");
+  res.set("Cache-Control", "public, max-age=300, stale-while-revalidate=3600");
   if (data.error) {
     return res.status(404).send(`<!doctype html><meta charset="utf-8"><title>No encontrado</title><p>Producto no encontrado. <a href="${appUrl}">Volver al inicio</a></p>`);
   }
