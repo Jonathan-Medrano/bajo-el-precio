@@ -21,6 +21,9 @@ Tracker de precios #1 de MercadoLibre Argentina.
 - Daily digest al canal Telegram a las 09:00 ART ✅
 - Seed-catalog via ML Search API (sin Playwright) ✅
 - Category pills en landing + footer links ✅
+- Sistema de referidos: `/ref/:chatId` → deep link Telegram, +1 alerta por referido ✅
+- Sitemap con URLs de categorías + `Cache-Control` en `/p/:id` ✅
+- Tracker fix definitivo: campo `lastTracked` (solo el tracker lo setea) ✅
 - **Pendiente**: `MP_ACCESS_TOKEN` + `MP_WEBHOOK_SECRET` en Fly secrets para activar pagos
 - **Pendiente**: `TWITTER_API_KEY/SECRET` + `TWITTER_ACCESS_TOKEN/SECRET` para auto-tweet
 - **Pendiente**: `ALERTS_ENABLED=1` + `TELEGRAM_CHANNEL=@bajoelprecio_ar` para canal
@@ -34,6 +37,7 @@ reales y los deals son vacíos. Todo lo demás depende de esto.
 
 ### 2.1 Acumular historial automáticamente
 - [x] Tracker fix: `lastScraped null check` corregido ✅
+- [x] Tracker fix definitivo: campo `lastTracked` separado de `@updatedAt` ✅
 - [x] Seed-catalog via ML Search API (encuentra productos sin Playwright) ✅
 - [ ] Trigger manual de seed cada domingo (cron en Fly.io o script)
 - [ ] **Blocker natural**: esperar que el tracker corra ciclos y acumule ≥3 datapoints por producto
@@ -97,9 +101,9 @@ reales y los deals son vacíos. Todo lo demás depende de esto.
 - [ ] Cron semanal en Fly.io: `POST /admin/seed-catalog`
 
 ### 4.2 Páginas por categoría
-- [ ] `GET /deals/:category` — deals filtrados por categoría (Gaming, Celulares, etc.)
-- [ ] `GET /sitemap.xml` — ya existe, agregar URLs de categorías
-- [ ] Meta tags por categoría: `<title>Mejores precios en {cat} hoy | Bajó el Precio</title>`
+- [x] `GET /deals/:category` — deals filtrados por categoría ✅
+- [x] `GET /sitemap.xml` — incluye URLs de categorías ✅
+- [x] Meta tags por categoría ✅
 
 ### 4.3 SEO técnico
 - [ ] Structured data `Product` + `Offer` en `/p/:id`
@@ -133,8 +137,9 @@ reales y los deals son vacíos. Todo lo demás depende de esto.
 - [ ] OG image (`/og/:id.png`) ya existe — verificar que muestre gráfico + precio
 
 ### 5.4 Referidos (simple)
-- [ ] `/ref/:code` → genera alerta de bienvenida y suma 1 alerta extra al referente
-- [ ] El bot muestra el link de referido en `/start`
+- [x] `/ref/:chatId` → redirect a Telegram deep link `?start=ref_CHATID` ✅
+- [x] Bot procesa `/start ref_CHATID`: crea Referral, notifica al referente +1 alerta ✅
+- [x] Plan free incluye alertas extra (FREE_ALERT_LIMIT + referralCount) ✅
 
 **Entregable**: canal Telegram con 500 subs, tweets automáticos activos.
 
