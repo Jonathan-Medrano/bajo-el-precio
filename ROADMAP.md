@@ -7,16 +7,23 @@ Tracker de precios #1 de MercadoLibre Argentina.
 
 ---
 
-## Estado actual (v4.0 — deployada 2026-07-08)
+## Estado actual (v4.5 — deployada 2026-07-08)
 
 - Fly.io: `bajoelprecio.fly.dev` corriendo ✅
-- 2890 productos en DB (1 datapoint cada uno — historial real empieza ahora) ✅
-- Chrome extension v1.0.0 (observa precios desde la página del producto) ✅
-- Telegram bot `@bajoelprecio_bot`: alertas, `/start`, `/mis_alertas`, `/borrar` ✅
+- 2890 productos en DB, tracker acumulando datapoints ✅
+- Chrome extension v1.0.0 con gráfico de precio y intelligence recommendation ✅
+- Telegram bot: `/start`, `/mis_alertas`, `/borrar`, `/premium` ✅
 - Price intelligence: isDeal, trend, confidence, recommendation ✅
-- `GET /deals` (SSR) + `GET /api/deals` ✅
-- Freemium: 3 alertas free, premium via MP (incomplete) 🟡
-- Auto-tracker: corre cada 6h sobre los productos con alertas activas ✅
+- `GET /deals` + `GET /deals/:category` (SSR) + `GET /api/deals?category=X` ✅
+- `/premium` landing page con pricing + FAQ ✅
+- `/p/:id` producto SSR con JSON-LD, OG tags, related products ✅
+- Auto-tweet cuando precio toca nuevo mínimo (≥10% de bajada) ✅
+- Daily digest al canal Telegram a las 09:00 ART ✅
+- Seed-catalog via ML Search API (sin Playwright) ✅
+- Category pills en landing + footer links ✅
+- **Pendiente**: `MP_ACCESS_TOKEN` + `MP_WEBHOOK_SECRET` en Fly secrets para activar pagos
+- **Pendiente**: `TWITTER_API_KEY/SECRET` + `TWITTER_ACCESS_TOKEN/SECRET` para auto-tweet
+- **Pendiente**: `ALERTS_ENABLED=1` + `TELEGRAM_CHANNEL=@bajoelprecio_ar` para canal
 
 ---
 
@@ -26,26 +33,27 @@ Tracker de precios #1 de MercadoLibre Argentina.
 reales y los deals son vacíos. Todo lo demás depende de esto.
 
 ### 2.1 Acumular historial automáticamente
-- [ ] Verificar que el auto-tracker (6h loop) esté corriendo en Fly.io (check logs)
-- [ ] Aumentar cobertura del tracker: trackear los 500 productos con más `queries`, no solo los que tienen alertas
-- [ ] Seed semanal: `POST /admin/seed-catalog` como cron en Fly.io (cada domingo 03:00 ART)
+- [x] Tracker fix: `lastScraped null check` corregido ✅
+- [x] Seed-catalog via ML Search API (encuentra productos sin Playwright) ✅
+- [ ] Trigger manual de seed cada domingo (cron en Fly.io o script)
+- [ ] **Blocker natural**: esperar que el tracker corra ciclos y acumule ≥3 datapoints por producto
 
 ### 2.2 Gráfico de precio histórico en la extensión
-- [ ] Inline SVG sparkline en el popup (sin dependencias externas — Canvas 2D en el content script)
-- [ ] Badge "Mínimo histórico: $X (hace N días)" prominente
-- [ ] Badge "Nunca estuvo tan barato" si `current === stats.min`
+- [x] SVG sparkline en el content script ✅
+- [x] Intelligence recommendation debajo del veredicto ✅
+- [x] Colores de gráfico actualizados a brand #e64c1e ✅
 
-### 2.3 Página pública por producto (`/p/:id`) — ya existe, mejorar
-- [ ] Agregar gráfico interactivo (Chart.js desde CDN, lazy)
-- [ ] Mostrar `intelligence.recommendation` con color semántico
-- [ ] Tabla de historial paginada (últimas 30 entradas)
-- [ ] Botón "Activar alerta" → abre Telegram con deep link
+### 2.3 Página pública por producto (`/p/:id`)
+- [x] JSON-LD structured data ✅
+- [x] OG tags + Twitter card ✅
+- [x] Related products section ✅
+- [x] Intelligence recommendation en veredicto ✅
+- [x] /premium CTA cuando se alcanza el límite ✅
 
-### 2.4 Dashboard mejorado
-- [ ] Widget "Productos con mejor momento para comprar" (top 5 isDeal + alta confidence)
-- [ ] Gráfico de actividad: datapoints registrados por día (sparkline)
+### 2.4 Dashboard
+- [ ] Widget "Mejor momento para comprar" (pendiente)
 
-**Entregable**: `/deals` muestra resultados reales (≥10 productos), extension muestra gráfico.
+**Entregable**: `/deals` muestra resultados reales (≥10 productos) — ETA: 24-48h de tracker acumulando.
 
 ---
 
@@ -54,13 +62,12 @@ reales y los deals son vacíos. Todo lo demás depende de esto.
 **Por qué acá**: sin ingresos no hay runway para seguir mejorando.
 
 ### 3.1 MercadoPago funcional
-- [ ] Crear preferencia de pago al ejecutar `/premium` en el bot
-  - `POST /api/payment/create` → devuelve `init_point` (link de pago MP)
-  - El bot responde con el link + instrucciones
-- [ ] Webhook IPN (`POST /webhooks/mp`) verificado con HMAC SHA256
-  - `grantPremium(chatId)` al recibir `payment.approved`
-- [ ] Fly secrets: `MP_ACCESS_TOKEN`, `MP_WEBHOOK_SECRET` (ya placeholders en `plans.js`)
-- [ ] Landing: página `/premium` con pricing claro
+- [x] `/premium` command en bot → genera link de pago ✅
+- [x] `createPaymentPreference()` via MP API ✅
+- [x] Webhook IPN HMAC-SHA256 verificado ✅
+- [x] `grantPremium(chatId)` tras pago aprobado ✅
+- [x] `/premium` landing page ✅
+- [ ] **ACCIÓN REQUERIDA**: `fly secrets set MP_ACCESS_TOKEN=... MP_WEBHOOK_SECRET=...`
 
 ### 3.2 Modelo de precios
 | Plan     | Alertas | Frecuencia | Precio          |
@@ -113,14 +120,13 @@ reales y los deals son vacíos. Todo lo demás depende de esto.
 **Por qué acá**: con historial real y monetización activa, ahora vale la pena traer tráfico.
 
 ### 5.1 Auto-post en Twitter/X
-- [ ] Cuando un producto cae ≥30% bajo su mínimo histórico → tweet automático
-- [ ] Tweet incluye: título, precio actual, precio mínimo, % de ahorro, link `/p/:id`, OG image
-- [ ] Rate limit: máx 5 tweets/hora, no repetir el mismo producto en 24h
-- [ ] `POST /api/twitter/post` vía Twitter API v2 (Bearer token en Fly secrets)
+- [x] `src/twitter.js`: OAuth 1.0a, 10 tweets/día, 24h cooldown por producto ✅
+- [x] Hook en `alerts.js`: tweet cuando bajada ≥10% ✅
+- [ ] **ACCIÓN REQUERIDA**: `fly secrets set TWITTER_API_KEY=... TWITTER_API_SECRET=... TWITTER_ACCESS_TOKEN=... TWITTER_ACCESS_SECRET=...`
 
 ### 5.2 Canal de Telegram `@bajoelprecio_ar`
-- [ ] Bot postea deals en el canal: las mejores 3 bajadas del día a las 09:00 ART
-- [ ] Subscribers del canal = top-of-funnel gratuito
+- [x] Daily digest a las 09:00 ART: top 3 deals del día ✅
+- [ ] **ACCIÓN REQUERIDA**: `fly secrets set ALERTS_ENABLED=1 TELEGRAM_CHANNEL=@bajoelprecio_ar`
 
 ### 5.3 Compartir historial
 - [ ] Botón en `/p/:id`: "Ver precio antes del Hot Sale" → enlace con OG card

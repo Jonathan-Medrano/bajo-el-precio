@@ -41,11 +41,15 @@ async function handleUpdate(update) {
       return `${i + 1}. <b>${a.title.slice(0, 50)}</b>\n   Precio actual: ${price} · objetivo: ${target}\n   ID: <code>${a.id}</code>`;
     });
     const limitText = plan.premium ? "ilimitadas" : `${alerts.length}/${plan.limit}`;
+    const upgradeHint = !plan.premium && alerts.length >= plan.limit
+      ? `\n\n⭐ Llegaste al límite del plan gratis. Usá /premium para alertas ilimitadas.`
+      : "";
     await sendUser(
       chatId,
       `🔔 <b>Tus alertas activas</b> (${limitText}):\n\n` +
       lines.join("\n\n") +
-      `\n\nPara borrar: /borrar <ID>`
+      `\n\nPara borrar: /borrar <ID>` +
+      upgradeHint
     );
     return;
   }
