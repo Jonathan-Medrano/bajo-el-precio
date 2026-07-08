@@ -1,6 +1,7 @@
 import { listAlerts, unsubscribeAlert } from "./service.js";
 import { sendUser } from "./telegram.js";
 import { getPlan } from "./plans.js";
+import { createPaymentPreference } from "./mercadopago.js";
 
 const PUBLIC_URL = process.env.PUBLIC_URL || "http://localhost:3000";
 
@@ -19,7 +20,8 @@ async function handleUpdate(update) {
       `Tu Chat ID es: <code>${chatId}</code>\n\n` +
       `<b>Comandos:</b>\n` +
       `• /mis_alertas — ver tus alertas activas\n` +
-      `• /borrar &lt;ID&gt; — eliminar una alerta\n\n` +
+      `• /borrar &lt;ID&gt; — eliminar una alerta\n` +
+      `• /premium — activar plan Pro (alertas ilimitadas)\n\n` +
       `🌐 Buscá cualquier producto en <a href="${PUBLIC_URL}">${PUBLIC_URL}</a> ` +
       `y activá la alerta desde ahí con tu Chat ID.`
     );
@@ -27,22 +29,48 @@ async function handleUpdate(update) {
   }
 
   if (cmd === "/mis_alertas" || cmd === "/alertas") {
-    const result = await listAlerts(chatId);
-    if (!result.alerts?.length) {
+    const alerts = await listAlerts(chatId);
+    if (!alerts.length) {
       await sendUser(chatId, "No tenés alertas activas.\n\n🌐 Activalas desde " + PUBLIC_URL);
       return;
     }
     const plan = await getPlan(chatId);
-    const lines = result.alerts.map((a, i) => {
+    const lines = alerts.map((a, i) => {
+      const price = a.currentPrice ? `$${Number(a.currentPrice).toLocaleString("es-AR")}` : "–";
       const target = a.targetPrice ? `$${Number(a.targetPrice).toLocaleString("es-AR")}` : "cualquier baja";
-      return `${i + 1}. <b>${a.product.title.slice(0, 50)}</b>\n   ID: <code>${a.id}</code> · objetivo: ${target}`;
+      return `${i + 1}. <b>${a.title.slice(0, 50)}</b>\n   Precio actual: ${price} · objetivo: ${target}\n   ID: <code>${a.id}</code>`;
     });
+    const limitText = plan.premium ? "ilimitadas" : `${alerts.length}/${plan.limit}`;
     await sendUser(
       chatId,
-      `🔔 <b>Tus alertas activas</b> (${result.alerts.length}/${plan.limit}):\n\n` +
+      `🔔 <b>Tus alertas activas</b> (${limitText}):\n\n` +
       lines.join("\n\n") +
-      `\n\nPara borrar: /borrar &lt;ID&gt;`
+      `\n\nPara borrar: /borrar <ID>`
     );
+    return;
+  }
+
+  if (cmd === "/premium") {
+    const plan = await getPlan(chatId);
+    if (plan.premium) {
+      await sendUser(chatId, `✅ <b>Ya tenés Premium activo.</b>\n\nAlertas usadas: ${plan.used} (ilimitadas).`);
+      return;
+    }
+    try {
+      const { initPoint, plan: selectedPlan } = await createPaymentPreference(chatId);
+      await sendUser(
+        chatId,
+        `⭐ <b>Plan Pro — ${selectedPlan.label}</b>\n\n` +
+        `✅ Alertas ilimitadas\n` +
+        `✅ Notificaciones inmediatas\n` +
+        `✅ Sin restricciones\n\n` +
+        `Precio: $${Number(selectedPlan.amount).toLocaleString("es-AR")} ARS\n\n` +
+        `<a href="${initPoint}">💳 Pagar con MercadoPago</a>`
+      );
+    } catch (e) {
+      console.error("[bot /premium]", e.message);
+      await sendUser(chatId, "No pude generar el link de pago. Probá de nuevo en unos minutos.");
+    }
     return;
   }
 

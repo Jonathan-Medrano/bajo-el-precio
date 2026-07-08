@@ -61,6 +61,42 @@ async function getPayment(paymentId) {
   return r.json();
 }
 
+export const PLANS = [
+  { label: "Pro Mensual", amount: 4990, days: 30 },
+  { label: "Pro Anual",   amount: 39990, days: 365 },
+];
+
+export async function createPaymentPreference(chatId, planIndex = 0) {
+  if (!MP_ACCESS_TOKEN) throw new Error("MP_ACCESS_TOKEN no configurado");
+  const plan = PLANS[planIndex] ?? PLANS[0];
+  const publicUrl = process.env.PUBLIC_URL || "https://bajoelprecio.fly.dev";
+
+  const r = await fetch("https://api.mercadopago.com/checkout/preferences", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${MP_ACCESS_TOKEN}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      items: [{ title: `Bajó el Precio ${plan.label}`, quantity: 1, currency_id: "ARS", unit_price: plan.amount }],
+      external_reference: String(chatId),
+      back_urls: {
+        success: `${publicUrl}/premium/gracias`,
+        failure: `${publicUrl}/premium`,
+        pending: `${publicUrl}/premium`,
+      },
+      auto_return: "approved",
+      statement_descriptor: "Bajo el Precio",
+    }),
+  });
+  if (!r.ok) {
+    const body = await r.text();
+    throw new Error(`MP preference error ${r.status}: ${body}`);
+  }
+  const data = await r.json();
+  return { initPoint: data.init_point, sandboxInitPoint: data.sandbox_init_point, plan };
+}
+
 /** Handler para montar en Express: app.post("/webhooks/mp", mpWebhookHandler) */
 export async function mpWebhookHandler(req, res) {
   // Responder rápido para evitar retries de MP

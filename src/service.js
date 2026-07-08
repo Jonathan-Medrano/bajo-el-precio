@@ -99,6 +99,7 @@ export async function listAlerts(chatId) {
     orderBy: { createdAt: "desc" },
   });
   return alerts.map((a) => ({
+    id: a.id,
     productId: a.productId,
     title: a.product.title,
     targetPrice: a.targetPrice,
@@ -106,10 +107,10 @@ export async function listAlerts(chatId) {
   }));
 }
 
-/** Borra una suscripción. */
-export async function unsubscribeAlert({ chatId, productId }) {
-  await prisma.alert.deleteMany({ where: { chatId: String(chatId), productId } });
-  return { ok: true };
+/** Borra una suscripción por alertId. */
+export async function unsubscribeAlert({ chatId, alertId }) {
+  const deleted = await prisma.alert.deleteMany({ where: { id: Number(alertId), chatId: String(chatId) } });
+  return { ok: deleted.count > 0 };
 }
 
 /** Devuelve el producto + su historial de precios + stats (para el gráfico). */
