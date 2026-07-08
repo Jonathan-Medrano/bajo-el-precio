@@ -76,3 +76,13 @@ export function fetchCatalogBestPrice(catalogId) {
     )
   );
 }
+
+export function searchProducts(query, limit = 50) {
+  return queue.add(() =>
+    retry(() =>
+      mlFetch(
+        `/sites/MLA/search?q=${encodeURIComponent(query)}&limit=${limit}&fields=results.id,results.title,results.price,results.thumbnail,results.permalink,results.catalog_product_id`
+      )
+    )
+  );
+}

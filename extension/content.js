@@ -63,7 +63,7 @@ function readPrice() {
 
 // --- Render -------------------------------------------------------------------
 
-function injectBox(id, { product, history, stats }, api = DEFAULT_API) {
+function injectBox(id, { product, history, stats, intelligence }, api = DEFAULT_API) {
   if (document.getElementById("bp-box")) return;
 
   const now = stats.last;
@@ -85,6 +85,10 @@ function injectBox(id, { product, history, stats }, api = DEFAULT_API) {
     vClass = "bp-mid";
   }
 
+  const intelLine = intelligence && intelligence.confidence >= 30
+    ? `<div class="bp-intel">${intelligence.recommendation}</div>`
+    : "";
+
   const box = document.createElement("div");
   box.id = "bp-box";
   box.innerHTML = `
@@ -93,6 +97,7 @@ function injectBox(id, { product, history, stats }, api = DEFAULT_API) {
       <span class="bp-count">${stats.count} ${stats.count === 1 ? "registro" : "registros"}</span>
     </div>
     <div class="bp-verdict ${vClass}">${verdict}</div>
+    ${intelLine}
     ${stats.count > 1 ? chartSVG(history) : ""}
     <div class="bp-stats">
       <div><span>Mínimo</span><b class="bp-min">${fmt(stats.min)}</b></div>
@@ -132,9 +137,9 @@ function chartSVG(history) {
   const [lx, ly] = pts[pts.length - 1];
   return `
     <svg class="bp-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
-      <polygon points="${area}" fill="rgba(52,131,250,0.12)" />
-      <polyline points="${line}" fill="none" stroke="#3483fa" stroke-width="2"
+      <polygon points="${area}" fill="rgba(230,76,30,0.12)" />
+      <polyline points="${line}" fill="none" stroke="#e64c1e" stroke-width="2"
         stroke-linejoin="round" stroke-linecap="round" />
-      <circle cx="${lx.toFixed(1)}" cy="${ly.toFixed(1)}" r="3.5" fill="#3483fa" />
+      <circle cx="${lx.toFixed(1)}" cy="${ly.toFixed(1)}" r="3.5" fill="#e64c1e" />
     </svg>`;
 }

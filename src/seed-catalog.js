@@ -14,6 +14,7 @@ import { prisma } from "./db.js";
 import { readProductPrice } from "./ml/price-reader.js";
 import { parseProductId } from "./link-parser.js";
 import { pathToFileURL } from "node:url";
+import { searchProducts } from "./ml/api-client.js";
 
 const DRY_RUN = process.argv.includes("--dry-run");
 // Web page for trending searches (Playwright scrapes the HTML)
@@ -31,6 +32,19 @@ const CATEGORY_SEEDS = [
   { category: "Electrodomésticos", url: "https://listado.mercadolibre.com.ar/electrodomesticos/_Deals_true" },
   { category: "Consolas",          url: "https://listado.mercadolibre.com.ar/videojuegos/consolas-y-videojuegos/_Deals_true" },
   { category: "Tablets",           url: "https://listado.mercadolibre.com.ar/computacion/tablets-y-accesorios/_Deals_true" },
+];
+
+const SEARCH_QUERIES = [
+  { category: "Celulares",           q: "celular smartphone 5g" },
+  { category: "Notebooks",           q: "notebook laptop i7" },
+  { category: "Televisores",         q: "smart tv 4k" },
+  { category: "Gaming",              q: "playstation xbox gaming" },
+  { category: "Auriculares",         q: "auriculares bluetooth inalambricos" },
+  { category: "Relojes inteligentes", q: "smartwatch reloj inteligente" },
+  { category: "Electrodomésticos",   q: "heladera no frost inverter" },
+  { category: "Consolas",            q: "consola ps5 nintendo switch" },
+  { category: "Tablets",             q: "tablet android 10 pulgadas" },
+  { category: "Cámaras",             q: "camara mirrorless" },
 ];
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -103,6 +117,28 @@ async function scrapeCategory(ctx, { category, url }, limit = 10) {
   return products;
 }
 
+async function seedFromApi(limit = 10) {
+  console.log("\nFase API: buscando con ML Search API");
+  const results = [];
+  for (const { category, q } of SEARCH_QUERIES) {
+    try {
+      const data = await searchProducts(q, 50);
+      const items = (data?.results ?? []).slice(0, limit);
+      for (const r of items) {
+        const rawId = r.catalog_product_id ?? r.id ?? "";
+        const id = rawId.replace(/-/g, "").toUpperCase();
+        if (!id.startsWith("MLA")) continue;
+        results.push({ id, title: r.title, url: r.permalink, image: r.thumbnail, category, price: r.price ? Math.round(r.price) : null });
+      }
+      console.log(`  [${category}] ${items.length} productos`);
+    } catch (e) {
+      console.warn(`  [${category}] error: ${e.message}`);
+    }
+    await sleep(500);
+  }
+  return results;
+}
+
 /** Save a product to DB if it doesn't exist yet. */
 async function saveProduct({ id, title, url, image, category, price }) {
   if (DRY_RUN) {
@@ -122,53 +158,74 @@ async function saveProduct({ id, title, url, image, category, price }) {
 
 export async function seedCatalog({ categorySeedLimit = 10, trendLimit = 15 } = {}) {
   console.log(`\n[seed-catalog] ${new Date().toISOString()}${DRY_RUN ? " (DRY RUN)" : ""}`);
-  const ctx = await getContext();
   const allLinks = [];
 
-  try {
-    // 1. Scrape trends page
-    console.log("\nFase 1: tendencias ML");
-    const trendLinks = await scrapeTrends(ctx);
-    allLinks.push(...trendLinks.slice(0, trendLimit).map((l) => ({ href: l.href, category: "Tendencias" })));
-    await sleep(jitter(1000, 2000));
+  // Fase 1: ML Search API (rápido, sin Playwright)
+  const apiResults = await seedFromApi(categorySeedLimit);
+  allLinks.push(...apiResults);
+  console.log(`\nFase API: ${apiResults.length} links encontrados`);
 
-    // 2. Scrape each category
-    console.log("\nFase 2: categorías populares");
-    for (const seed of CATEGORY_SEEDS) {
-      const catLinks = await scrapeCategory(ctx, seed, categorySeedLimit);
-      allLinks.push(...catLinks);
-      await sleep(jitter(1500, 3000));
-    }
-
-    // 3. Deduplicate by ID
-    const seen = new Set();
-    const toProcess = [];
-    for (const l of allLinks) {
-      const parsed = parseProductId(l.href);
-      if (!parsed?.id || seen.has(parsed.id)) continue;
-      seen.add(parsed.id);
-      // Skip if already in DB
-      const exists = await prisma.product.findUnique({ where: { id: parsed.id } });
-      if (exists) { console.log(`  skip ${parsed.id} (ya existe)`); continue; }
-      toProcess.push({ ...parsed, category: l.category });
-    }
-
-    console.log(`\nFase 3: scraping precios para ${toProcess.length} productos nuevos`);
-    for (const p of toProcess) {
-      try {
-        const reading = await readProductPrice(p.id, p.url);
-        if (reading.blocked) { console.warn(`  ${p.id} bloqueado, skip`); await sleep(jitter(15000, 25000)); continue; }
-        if (!reading.price) { console.warn(`  ${p.id} sin precio`); continue; }
-        await saveProduct({ id: p.id, title: reading.title, url: p.url, image: reading.image, category: p.category, price: reading.price });
-      } catch (e) {
-        console.warn(`  ${p.id} error: ${e.message}`);
+  // Fase 2: Playwright (fallback si la API no encontró suficiente)
+  if (apiResults.length < 30) {
+    const ctx = await getContext();
+    try {
+      console.log("\nFase Playwright fallback");
+      const trendLinks = await scrapeTrends(ctx);
+      allLinks.push(...trendLinks.slice(0, trendLimit).map((l) => ({ href: l.href, category: "Tendencias" })));
+      await sleep(jitter(1000, 2000));
+      for (const seed of CATEGORY_SEEDS) {
+        const catLinks = await scrapeCategory(ctx, seed, categorySeedLimit);
+        allLinks.push(...catLinks);
+        await sleep(jitter(1500, 3000));
       }
-      await sleep(jitter(3000, 6000));
+    } finally {
+      await ctx.close();
     }
-  } finally {
-    await ctx.close();
   }
-  console.log("\n[seed-catalog] terminado.");
+
+  // Fase 3: guardar los que vienen de la API (ya tienen id, title, price)
+  let savedApi = 0;
+  for (const item of apiResults) {
+    const exists = await prisma.product.findUnique({ where: { id: item.id } });
+    if (exists) { console.log(`  skip ${item.id} (ya existe)`); continue; }
+    await saveProduct(item);
+    savedApi++;
+  }
+
+  // Fase 4: los links de Playwright → scraping de precio individual
+  const playwrightLinks = allLinks.filter(l => l.href);
+  const seen = new Set(apiResults.map(r => r.id));
+  const toProcess = [];
+  for (const l of playwrightLinks) {
+    const parsed = parseProductId(l.href);
+    if (!parsed?.id || seen.has(parsed.id)) continue;
+    seen.add(parsed.id);
+    const exists = await prisma.product.findUnique({ where: { id: parsed.id } });
+    if (exists) { console.log(`  skip ${parsed.id} (ya existe)`); continue; }
+    toProcess.push({ ...parsed, category: l.category });
+  }
+
+  if (toProcess.length > 0) {
+    console.log(`\nFase precios: ${toProcess.length} productos nuevos`);
+    const ctx = await getContext();
+    try {
+      for (const p of toProcess) {
+        try {
+          const reading = await readProductPrice(p.id, p.url);
+          if (reading.blocked) { console.warn(`  ${p.id} bloqueado, skip`); await sleep(jitter(15000, 25000)); continue; }
+          if (!reading.price) { console.warn(`  ${p.id} sin precio`); continue; }
+          await saveProduct({ id: p.id, title: reading.title, url: p.url, image: reading.image, category: p.category, price: reading.price });
+        } catch (e) {
+          console.warn(`  ${p.id} error: ${e.message}`);
+        }
+        await sleep(jitter(3000, 6000));
+      }
+    } finally {
+      await ctx.close();
+    }
+  }
+
+  console.log(`\n[seed-catalog] terminado. API: ${savedApi} nuevos.`);
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {

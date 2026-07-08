@@ -35,10 +35,10 @@ async function savePrice(product, price, title, image, cheapestUrl) {
  */
 export async function trackerCycle({ limit = 200 } = {}) {
   // Prioridad: productos con alertas activas > más buscados > más viejos (stale-first).
-  // No re-scrapear productos actualizados en las últimas 2h (evita trabajo redundante).
+  // lastScraped es @updatedAt (nunca null) — lo comparamos directo con el umbral de 2h.
   const twoHoursAgo = new Date(Date.now() - 2 * 3_600_000);
   const products = await prisma.product.findMany({
-    where: { OR: [{ lastScraped: null }, { lastScraped: { lt: twoHoursAgo } }] },
+    where: { lastScraped: { lt: twoHoursAgo } },
     orderBy: [
       { alerts: { _count: "desc" } },
       { queries: "desc" },
