@@ -662,6 +662,11 @@ app.post("/admin/seed-catalog", requireAdmin, async (_req, res) => {
   // Fire and forget — no esperamos el resultado para no timeout
   import("./seed-catalog.js").then(({ seedCatalog }) => seedCatalog()).catch(console.error);
 });
+// Dispara un ciclo del tracker en background (para debugging / forzar corrida).
+app.post("/admin/run-tracker", requireAdmin, async (_req, res) => {
+  res.json({ ok: true, message: "tracker iniciado en background" });
+  import("./tracker.js").then(({ trackerCycle }) => trackerCycle()).catch(console.error);
+});
 
 // --- API pública B2B v1 (gated por x-api-key + cuota) ------------------------
 app.get("/v1/product/:id", apiKeyMiddleware, async (req, res) => {
