@@ -79,15 +79,16 @@ async function scrapeCategory(ctx, { category, url }, limit = 10) {
   const products = [];
   try {
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
-    await page.waitForSelector(".ui-search-result__image, .ui-search-layout__item", { timeout: 10000 }).catch(() => {});
+    // Wait for any product link to appear (ML 2025+ layout)
+    await page.waitForSelector("a[href]", { timeout: 12000 }).catch(() => {});
+    await sleep(2000); // let JS render
 
-    const links = await page.$$eval(
-      ".ui-search-result__image a, .ui-search-item__title a, a.ui-search-link",
-      (anchors) =>
-        anchors
-          .map((a) => a.href)
-          .filter((h) => /\/(MLA|MLAU)\d/.test(h))
-          .slice(0, 15)
+    // ML uses several layouts; grab ALL links that look like product URLs
+    const links = await page.$$eval("a[href]", (anchors) =>
+      anchors
+        .map((a) => a.href)
+        .filter((h) => h && /mercadolibre\.com\.ar\/(p\/|[^/]+-)?(MLA|MLAU)[-\d]/.test(h))
+        .slice(0, 30)
     );
     const unique = [...new Set(links)].slice(0, limit);
     for (const href of unique) {
