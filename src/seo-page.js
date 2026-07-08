@@ -55,10 +55,13 @@ function buildVerdict(stats) {
 }
 
 /** HTML completo de la página de un producto — indexable por Google, compartible en redes. */
-export function renderProductPage({ product, history, stats }, { baseUrl, appUrl, related = [] }) {
+export function renderProductPage({ product, history, stats, intelligence }, { baseUrl, appUrl, related = [] }) {
   const title = product.title || "Producto";
   const pageUrl = `${baseUrl}/p/${product.id}`;
   const verdict = buildVerdict(stats);
+  const intelLine = intelligence && intelligence.confidence >= 30
+    ? `<div style="font-size:13px;margin-top:6px;opacity:.85">${esc(intelligence.recommendation)}</div>`
+    : "";
 
   const desc = stats.count
     ? `Historial real de precios de "${title}" en MercadoLibre. Precio actual ${fmt(stats.last)}, mínimo ${fmt(stats.min)}, máximo ${fmt(stats.max)}. Sin descuentos truchos.`
@@ -264,7 +267,7 @@ footer a{color:var(--text-soft)}
     ${chartSVG(history)}
   </div>
 
-  <div class="verdict ${verdict.cls}">${esc(verdict.text)}</div>
+  <div class="verdict ${verdict.cls}">${esc(verdict.text)}${intelLine}</div>
 
   <div class="cta-row">
     <a class="btn btn-ml" href="${esc(product.url || product.rawUrl || "#")}" rel="nofollow sponsored" target="_blank">
@@ -340,7 +343,7 @@ footer a{color:var(--text-soft)}
         statusEl.textContent = '✅ ¡Alerta activada! Te avisamos cuando baje.';
         setTimeout(closeModal, 2500);
       } else if (d.error === 'limit') {
-        statusEl.textContent = 'Llegaste al límite del plan gratis. Contactá el bot para más info.';
+        statusEl.innerHTML = '⭐ Llegaste al límite. <a href="/premium" style="color:var(--brand);font-weight:600">Activá Plan Pro</a> para alertas ilimitadas.';
       } else {
         statusEl.textContent = 'Error. Verificá el Chat ID.';
       }
