@@ -205,8 +205,8 @@ a{color:inherit;text-decoration:none}
 .related-section h2{font-size:17px;font-weight:700;margin-bottom:16px;padding-bottom:8px;border-bottom:2px solid var(--brand);display:inline-block}
 .related-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px}
 .related-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:6px;transition:box-shadow 80ms,border-color 80ms,transform 80ms}
-.related-card:hover{border-color:var(--brand);box-shadow:0 0 0 1px rgba(0,0,0,.04),0 2px 4px rgba(0,0,0,.05);transform:translateY(-1px)}
-.rc-title{font-size:13px;line-height:1.4;height:36px;overflow:hidden;color:var(--text)}
+.related-card:hover{border-color:rgba(230,76,30,.4);box-shadow:0 0 0 1px rgba(0,0,0,.04),0 2px 4px rgba(0,0,0,.05);transform:translateY(-1px)}
+.rc-title{font-size:13px;line-height:1.4;min-height:36px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;color:var(--text)}
 .rc-price{font-size:16px;font-weight:700;font-variant-numeric:tabular-nums}
 footer{max-width:900px;margin:0 auto;padding:28px 20px;border-top:1px solid var(--border);font-size:12px;color:var(--text-xsoft)}
 footer a{color:var(--text-soft)}
