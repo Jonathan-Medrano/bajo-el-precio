@@ -224,8 +224,8 @@
     .t-card:hover { box-shadow: 0 0 0 2px rgba(230,76,30,.35), 0 4px 6px -1px rgba(0,0,0,.08), 0 2px 4px -1px rgba(0,0,0,.04); transform: translateY(-1px); }
     .t-card:active { transform: scale(.98); }
     .t-card img { width: 100%; height: 96px; object-fit: contain; background: var(--bg); border-radius: 8px; outline: 1px solid rgba(0,0,0,.04); }
-    .t-title { font-size: 11.5px; line-height: 1.4; min-height: 32px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; color: var(--text); margin: 8px 0 4px; }
-    .t-price { font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .t-title { font-size: 11.5px; line-height: 1.4; height: 33px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; color: var(--text); margin: 8px 0 4px; }
+    .t-price { font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .t-delta { display: inline-flex; align-items: center; gap: 3px; font-size: 10.5px; font-weight: 600; padding: 2px 6px; border-radius: 99px; margin-top: 4px; }
     .t-delta.down { background: #ecfdf5; color: #065f46; }
     .t-delta.up { background: #fef2f2; color: #991b1b; }
@@ -758,11 +758,16 @@
       const strip = $('trending-strip');
       strip.innerHTML = products.map(p => {
         const delta = p.prevPrice && p.price ? ((p.price - p.prevPrice) / p.prevPrice * 100) : null;
-        const deltaHtml = delta != null
-          ? `<div class="t-delta ${delta < -0.5 ? 'down' : delta > 0.5 ? 'up' : 'same'}">${delta < 0 ? '▼' : delta > 0 ? '▲' : '→'} ${Math.abs(delta).toFixed(1)}%</div>`
-          : '';
+        const deltaClass = delta == null ? 'same' : delta < -0.5 ? 'down' : delta > 0.5 ? 'up' : 'same';
+        const deltaSymbol = delta == null ? '' : delta < 0 ? '▼' : delta > 0 ? '▲' : '→';
+        const deltaText = delta != null ? `${deltaSymbol} ${Math.abs(delta).toFixed(1)}%` : '';
+        // Always render delta div so all cards have the same height; hide it when no data.
+        const deltaHtml = `<div class="t-delta ${deltaClass}"${delta == null ? ' style="visibility:hidden"' : ''}>${deltaText || '—'}</div>`;
+        const imgHtml = p.image
+          ? `<img src="${esc(p.image)}" loading="lazy" alt="" onerror="this.onerror=null;this.style.visibility='hidden'">`
+          : `<div style="height:96px;background:var(--bg);border-radius:8px"></div>`;
         return `<div class="t-card" data-id="${esc(p.id)}" tabindex="0" role="button" aria-label="${esc(p.title)}">
-          ${p.image ? `<img src="${esc(p.image)}" loading="lazy" alt="">` : `<div style="height:96px;background:var(--bg);border-radius:8px"></div>`}
+          ${imgHtml}
           <div class="t-title">${esc(p.title)}</div>
           <div class="t-price">${fmt(p.price)}</div>
           ${deltaHtml}
