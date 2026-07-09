@@ -984,6 +984,25 @@ app.listen(port, () => {
     setInterval(runTracker, intervalMs);
   }, 5 * 60_000);
 
+  // Search-based price accumulator: runs seedCatalog every 2h via ML Search API.
+  // This is the primary way we collect prices — Search API works from cloud IPs without auth.
+  let seedRunning = false;
+  const runSeed = () => {
+    if (seedRunning) { console.log("[seed] ya corriendo, skip"); return; }
+    seedRunning = true;
+    import("./seed-catalog.js")
+      .then(({ seedCatalog }) => seedCatalog({ resultsPerQuery: 50 }))
+      .catch((e) => console.error("[seed] error:", e.message))
+      .finally(() => { seedRunning = false; });
+  };
+
+  // First seed: wait 10min so startup noise settles and tracker has a head start.
+  setTimeout(() => {
+    console.log("[seed] primera seed en 10min, luego cada 2h");
+    runSeed();
+    setInterval(runSeed, 2 * 3_600_000);
+  }, 10 * 60_000);
+
   // Daily digest: postea los top 3 deals al canal a las 09:00 ART (12:00 UTC)
   const digestEnabled = process.env.ALERTS_ENABLED === "1" && process.env.TELEGRAM_CHANNEL;
   if (digestEnabled) {

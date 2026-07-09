@@ -1,234 +1,203 @@
 /**
- * Seed the catalog with popular/trending products from MercadoLibre Argentina.
+ * Catalog seed + price updater via ML Search API.
  *
- * Sources:
- *  1. ML "Tendencias" page — most searched terms right now
- *  2. ML highlighted sections per category (Tecnología, Gaming, Electro, etc.)
+ * Strategy: the ML Search API (/sites/MLA/search) works from cloud IPs without auth,
+ * and returns current prices in every result. We use it both to:
+ *   a) discover new products (save to DB if not exists)
+ *   b) update prices for existing products (save a new PricePoint)
  *
  * Run: node src/seed-catalog.js [--dry-run]
- * Or via admin endpoint: POST /admin/seed-catalog  (requires ADMIN_TOKEN header)
+ * Or via admin endpoint: POST /admin/seed-catalog
  */
 
-import { chromium } from "playwright";
 import { prisma } from "./db.js";
-import { readProductPrice } from "./ml/price-reader.js";
-import { parseProductId } from "./link-parser.js";
 import { pathToFileURL } from "node:url";
-import { searchProducts } from "./ml/api-client.js";
 
 const DRY_RUN = process.argv.includes("--dry-run");
-// Web page for trending searches (Playwright scrapes the HTML)
-const ML_TRENDS_URL = "https://tendencias.mercadolibre.com.ar/";
 
-// Top categories seeded with ML search/listing URLs — curated from ML trends July 2026:
-// Smart TV, celulares 5G, Gaming, Notebooks IA, Auriculares, Relojes inteligentes, Electro inverter
-const CATEGORY_SEEDS = [
-  { category: "Gaming",            url: "https://listado.mercadolibre.com.ar/videojuegos/_Deals_true" },
-  { category: "Celulares",         url: "https://listado.mercadolibre.com.ar/celulares-smartphones/celulares-y-smartphones/_Deals_true" },
-  { category: "Notebooks",         url: "https://listado.mercadolibre.com.ar/computacion/laptops-y-accesorios/laptops-y-accesorios/_Deals_true" },
-  { category: "Televisores",       url: "https://listado.mercadolibre.com.ar/electronica/television/televisores/_Deals_true" },
-  { category: "Auriculares",       url: "https://listado.mercadolibre.com.ar/electronica/audio/auriculares/_Deals_true" },
-  { category: "Relojes inteligentes", url: "https://listado.mercadolibre.com.ar/electronica/relojes-accesorios/smartwatch-y-relojes-inteligentes/_Deals_true" },
-  { category: "Electrodomésticos", url: "https://listado.mercadolibre.com.ar/electrodomesticos/_Deals_true" },
-  { category: "Consolas",          url: "https://listado.mercadolibre.com.ar/videojuegos/consolas-y-videojuegos/_Deals_true" },
-  { category: "Tablets",           url: "https://listado.mercadolibre.com.ar/computacion/tablets-y-accesorios/_Deals_true" },
-];
-
+// 60+ curated queries across all major ML Argentina categories.
+// Mix of categories, brands, subcategories, and price-range terms.
 const SEARCH_QUERIES = [
-  { category: "Celulares",           q: "celular smartphone 5g" },
-  { category: "Notebooks",           q: "notebook laptop i7" },
-  { category: "Televisores",         q: "smart tv 4k" },
-  { category: "Gaming",              q: "playstation xbox gaming" },
-  { category: "Auriculares",         q: "auriculares bluetooth inalambricos" },
-  { category: "Relojes inteligentes", q: "smartwatch reloj inteligente" },
-  { category: "Electrodomésticos",   q: "heladera no frost inverter" },
-  { category: "Consolas",            q: "consola ps5 nintendo switch" },
-  { category: "Tablets",             q: "tablet android 10 pulgadas" },
-  { category: "Cámaras",             q: "camara mirrorless" },
+  // Celulares y telefonía
+  { category: "Celulares", q: "celular samsung galaxy" },
+  { category: "Celulares", q: "iphone apple usado" },
+  { category: "Celulares", q: "motorola moto g" },
+  { category: "Celulares", q: "xiaomi redmi note" },
+  { category: "Celulares", q: "celular 5g barato" },
+  { category: "Celulares", q: "celular libre android" },
+
+  // Notebooks y computación
+  { category: "Notebooks", q: "notebook lenovo intel" },
+  { category: "Notebooks", q: "laptop hp core i5" },
+  { category: "Notebooks", q: "macbook pro apple" },
+  { category: "Notebooks", q: "notebook acer aspire" },
+  { category: "Notebooks", q: "notebook gamer rtx" },
+  { category: "Computación", q: "mouse teclado inalambrico" },
+  { category: "Computación", q: "monitor led 24 pulgadas" },
+  { category: "Computación", q: "disco ssd 1tb" },
+  { category: "Computación", q: "ram ddr4 16gb" },
+
+  // Televisores
+  { category: "Televisores", q: "smart tv samsung 55 4k" },
+  { category: "Televisores", q: "televisor lg oled" },
+  { category: "Televisores", q: "smart tv tcl 50 google tv" },
+  { category: "Televisores", q: "smart tv 43 pulgadas hd" },
+
+  // Audio
+  { category: "Auriculares", q: "auriculares bluetooth sony" },
+  { category: "Auriculares", q: "airpods apple" },
+  { category: "Auriculares", q: "auriculares inalambricos jbl" },
+  { category: "Auriculares", q: "auriculares gaming rgb" },
+  { category: "Audio", q: "parlante bluetooth portatil" },
+  { category: "Audio", q: "soundbar samsung" },
+
+  // Gaming
+  { category: "Gaming", q: "playstation 5 ps5" },
+  { category: "Gaming", q: "nintendo switch oled" },
+  { category: "Gaming", q: "xbox series x controller" },
+  { category: "Gaming", q: "joystick dualsense ps5" },
+  { category: "Gaming", q: "silla gamer ergonomica" },
+  { category: "Gaming", q: "monitor gamer 144hz" },
+
+  // Tablets
+  { category: "Tablets", q: "tablet samsung galaxy tab" },
+  { category: "Tablets", q: "ipad apple" },
+  { category: "Tablets", q: "tablet xiaomi android" },
+
+  // Relojes y wearables
+  { category: "Relojes inteligentes", q: "smartwatch samsung galaxy watch" },
+  { category: "Relojes inteligentes", q: "reloj inteligente xiaomi band" },
+  { category: "Relojes inteligentes", q: "apple watch serie" },
+
+  // Fotografía
+  { category: "Cámaras", q: "camara mirrorless sony alpha" },
+  { category: "Cámaras", q: "camara reflex canon nikon" },
+  { category: "Cámaras", q: "gopro action camera" },
+
+  // Electrodomésticos
+  { category: "Electrodomésticos", q: "heladera no frost inverter" },
+  { category: "Electrodomésticos", q: "lavarropas automatico 8kg" },
+  { category: "Electrodomésticos", q: "microondas samsung digital" },
+  { category: "Electrodomésticos", q: "aire acondicionado split frio calor" },
+  { category: "Electrodomésticos", q: "aspiradora robot irobot" },
+
+  // Cocina y hogar
+  { category: "Hogar", q: "cafetera nespresso dolce gusto" },
+  { category: "Hogar", q: "freidora de aire philips" },
+  { category: "Hogar", q: "licuadora procesadora" },
+
+  // Herramientas
+  { category: "Herramientas", q: "taladro atornillador inalambrico dewalt" },
+  { category: "Herramientas", q: "amoladora angular bosch" },
+  { category: "Herramientas", q: "soldadora inverter" },
+  { category: "Herramientas", q: "compresor de aire portatil" },
+
+  // Automotor
+  { category: "Automotor", q: "dashcam camara auto" },
+  { category: "Automotor", q: "sensor estacionamiento auto" },
+  { category: "Automotor", q: "aceite motor 10w40" },
+  { category: "Automotor", q: "bateria auto 12v" },
+
+  // Deportes
+  { category: "Deportes", q: "bicicleta rodado 29" },
+  { category: "Deportes", q: "cinta de correr electrica" },
+
+  // Impresión 3D
+  { category: "Impresión 3D", q: "filamento pla 1.75mm" },
+  { category: "Impresión 3D", q: "impresora 3d bambu creality" },
+
+  // Streaming y TV
+  { category: "Streaming", q: "chromecast google tv" },
+  { category: "Streaming", q: "amazon fire tv stick" },
+  { category: "Streaming", q: "roku streaming" },
 ];
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const jitter = (a, b) => Math.floor(a + Math.random() * (b - a));
 
-async function getContext() {
-  return chromium.launchPersistentContext(
-    process.env.BROWSER_PROFILE || ".browser",
-    {
-      headless: process.env.HEADLESS !== "0",
-      viewport: { width: 1366, height: 900 },
-      locale: "es-AR",
-      userAgent:
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-      args: ["--disable-blink-features=AutomationControlled"],
-    }
-  );
-}
+/**
+ * Search ML for products and save prices for both new and existing products.
+ * This is the core loop: search API → upsert product → save pricePoint.
+ */
+async function runSearchSeed({ resultsPerQuery = 50, delayMs = 300 } = {}) {
+  console.log(`[seed] ${new Date().toISOString()} — ${SEARCH_QUERIES.length} queries × ${resultsPerQuery} resultados`);
 
-/** Scrape the ML trends page to get top search keywords + product links. */
-async function scrapeTrends(ctx) {
-  const page = await ctx.newPage();
-  const products = [];
-  try {
-    await page.goto(ML_TRENDS_URL, { waitUntil: "domcontentloaded", timeout: 30000 });
-    await page.waitForSelector("a[href*='mercadolibre.com.ar']", { timeout: 10000 }).catch(() => {});
+  let totalNew = 0, totalUpdated = 0;
 
-    const links = await page.$$eval("a[href*='mercadolibre.com.ar/']", (anchors) =>
-      anchors
-        .map((a) => ({ href: a.href, text: a.textContent?.trim() }))
-        .filter((l) => /\/(MLA|MLAU)\d/.test(l.href) && l.href.includes("mercadolibre.com.ar"))
-    );
-    products.push(...links.slice(0, 20));
-    console.log(`  [tendencias] ${products.length} links encontrados`);
-  } catch (e) {
-    console.warn(`  [tendencias] error: ${e.message}`);
-  } finally {
-    await page.close();
-  }
-  return products;
-}
-
-/** Scrape top N product links from a category listing page. */
-async function scrapeCategory(ctx, { category, url }, limit = 10) {
-  const page = await ctx.newPage();
-  const products = [];
-  try {
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
-    // Wait for any product link to appear (ML 2025+ layout)
-    await page.waitForSelector("a[href]", { timeout: 12000 }).catch(() => {});
-    await sleep(2000); // let JS render
-
-    // ML uses several layouts; grab ALL links that look like product URLs
-    const links = await page.$$eval("a[href]", (anchors) =>
-      anchors
-        .map((a) => a.href)
-        .filter((h) => h && /mercadolibre\.com\.ar\/(p\/|[^/]+-)?(MLA|MLAU)[-\d]/.test(h))
-        .slice(0, 30)
-    );
-    const unique = [...new Set(links)].slice(0, limit);
-    for (const href of unique) {
-      products.push({ href, category });
-    }
-    console.log(`  [${category}] ${products.length} productos encontrados`);
-  } catch (e) {
-    console.warn(`  [${category}] error: ${e.message}`);
-  } finally {
-    await page.close();
-  }
-  return products;
-}
-
-async function seedFromApi(limit = 10) {
-  console.log("\nFase API: buscando con ML Search API");
-  const results = [];
   for (const { category, q } of SEARCH_QUERIES) {
     try {
-      const data = await searchProducts(q, 50);
-      const items = (data?.results ?? []).slice(0, limit);
-      for (const r of items) {
-        const rawId = r.catalog_product_id ?? r.id ?? "";
-        const id = rawId.replace(/-/g, "").toUpperCase();
-        if (!id.startsWith("MLA")) continue;
-        results.push({ id, title: r.title, url: r.permalink, image: r.thumbnail, category, price: r.price ? Math.round(r.price) : null });
+      const url = `https://api.mercadolibre.com/sites/MLA/search?q=${encodeURIComponent(q)}&limit=${resultsPerQuery}&fields=results.id,results.title,results.price,results.thumbnail,results.permalink,results.catalog_product_id`;
+      const res = await fetch(url);
+      if (!res.ok) {
+        console.warn(`  [${category}] HTTP ${res.status} para "${q}"`);
+        await sleep(delayMs * 3);
+        continue;
       }
-      console.log(`  [${category}] ${items.length} productos`);
-    } catch (e) {
-      console.warn(`  [${category}] error: ${e.message}`);
-    }
-    await sleep(500);
-  }
-  return results;
-}
+      const data = await res.json();
+      const items = data?.results ?? [];
 
-/** Save a product to DB if it doesn't exist yet. */
-async function saveProduct({ id, title, url, image, category, price }) {
-  if (DRY_RUN) {
-    console.log(`  [dry-run] ${id} | ${title?.slice(0, 50)} | $${price}`);
-    return;
-  }
-  await prisma.product.upsert({
-    where: { id },
-    update: { ...(title && { title }), ...(image && { image }), ...(category && { category }), queries: { increment: 0 } },
-    create: { id, title: title ?? "Producto", url, image, category },
-  });
-  if (price) {
-    await prisma.pricePoint.create({ data: { productId: id, price } });
-  }
-  console.log(`  ✓ ${id} | $${price?.toLocaleString("es-AR") ?? "?"} | ${category ?? ""}`);
-}
+      let newCount = 0, updCount = 0;
+      for (const item of items) {
+        const rawId = item.id?.replace(/-/g, "").toUpperCase();
+        if (!rawId?.startsWith("MLA")) continue;
+        const price = item.price ? Math.round(item.price) : null;
+        if (!price) continue;
 
-export async function seedCatalog({ categorySeedLimit = 10, trendLimit = 15 } = {}) {
-  console.log(`\n[seed-catalog] ${new Date().toISOString()}${DRY_RUN ? " (DRY RUN)" : ""}`);
-  const allLinks = [];
-
-  // Fase 1: ML Search API (rápido, sin Playwright)
-  const apiResults = await seedFromApi(categorySeedLimit);
-  allLinks.push(...apiResults);
-  console.log(`\nFase API: ${apiResults.length} links encontrados`);
-
-  // Fase 2: Playwright (fallback si la API no encontró suficiente)
-  if (apiResults.length < 30) {
-    const ctx = await getContext();
-    try {
-      console.log("\nFase Playwright fallback");
-      const trendLinks = await scrapeTrends(ctx);
-      allLinks.push(...trendLinks.slice(0, trendLimit).map((l) => ({ href: l.href, category: "Tendencias" })));
-      await sleep(jitter(1000, 2000));
-      for (const seed of CATEGORY_SEEDS) {
-        const catLinks = await scrapeCategory(ctx, seed, categorySeedLimit);
-        allLinks.push(...catLinks);
-        await sleep(jitter(1500, 3000));
-      }
-    } finally {
-      await ctx.close();
-    }
-  }
-
-  // Fase 3: guardar los que vienen de la API (ya tienen id, title, price)
-  let savedApi = 0;
-  for (const item of apiResults) {
-    const exists = await prisma.product.findUnique({ where: { id: item.id } });
-    if (exists) { console.log(`  skip ${item.id} (ya existe)`); continue; }
-    await saveProduct(item);
-    savedApi++;
-  }
-
-  // Fase 4: los links de Playwright → scraping de precio individual
-  const playwrightLinks = allLinks.filter(l => l.href);
-  const seen = new Set(apiResults.map(r => r.id));
-  const toProcess = [];
-  for (const l of playwrightLinks) {
-    const parsed = parseProductId(l.href);
-    if (!parsed?.id || seen.has(parsed.id)) continue;
-    seen.add(parsed.id);
-    const exists = await prisma.product.findUnique({ where: { id: parsed.id } });
-    if (exists) { console.log(`  skip ${parsed.id} (ya existe)`); continue; }
-    toProcess.push({ ...parsed, category: l.category });
-  }
-
-  if (toProcess.length > 0) {
-    console.log(`\nFase precios: ${toProcess.length} productos nuevos`);
-    const ctx = await getContext();
-    try {
-      for (const p of toProcess) {
-        try {
-          const reading = await readProductPrice(p.id, p.url);
-          if (reading.blocked) { console.warn(`  ${p.id} bloqueado, skip`); await sleep(jitter(15000, 25000)); continue; }
-          if (!reading.price) { console.warn(`  ${p.id} sin precio`); continue; }
-          await saveProduct({ id: p.id, title: reading.title, url: p.url, image: reading.image, category: p.category, price: reading.price });
-        } catch (e) {
-          console.warn(`  ${p.id} error: ${e.message}`);
+        if (DRY_RUN) {
+          console.log(`  [dry] ${rawId} $${price} ${item.title?.slice(0, 40)}`);
+          continue;
         }
-        await sleep(jitter(3000, 6000));
+
+        // Upsert product — update metadata if exists, create if new
+        const existing = await prisma.product.findUnique({ where: { id: rawId } });
+        if (!existing) {
+          await prisma.product.create({
+            data: {
+              id: rawId,
+              title: item.title ?? "Producto",
+              url: item.permalink ?? null,
+              image: item.thumbnail ?? null,
+              category,
+              lastTracked: new Date(),
+            },
+          });
+          newCount++;
+        } else {
+          // Update stale metadata (title/image can change over time)
+          await prisma.product.update({
+            where: { id: rawId },
+            data: {
+              ...(item.title && { title: item.title }),
+              ...(item.thumbnail && { image: item.thumbnail }),
+              ...(item.permalink && { url: item.permalink }),
+              lastTracked: new Date(),
+            },
+          });
+          updCount++;
+        }
+
+        // Always save current price as a new datapoint
+        await prisma.pricePoint.create({ data: { productId: rawId, price } });
       }
-    } finally {
-      await ctx.close();
+
+      totalNew += newCount;
+      totalUpdated += updCount;
+      console.log(`  [${category}] "${q}" → ${items.length} items, ${newCount} nuevos, ${updCount} actualizados`);
+    } catch (e) {
+      console.warn(`  [${category}] error en "${q}": ${e.message}`);
     }
+
+    await sleep(delayMs);
   }
 
-  console.log(`\n[seed-catalog] terminado. API: ${savedApi} nuevos.`);
+  console.log(`[seed] terminado: ${totalNew} nuevos, ${totalUpdated} precios actualizados`);
+  return { totalNew, totalUpdated };
+}
+
+export async function seedCatalog(opts = {}) {
+  return runSearchSeed(opts);
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
-  await seedCatalog();
+  await runSearchSeed({ resultsPerQuery: 50 });
   await prisma.$disconnect();
 }
