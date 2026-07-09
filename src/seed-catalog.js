@@ -197,6 +197,64 @@ export async function seedCatalog(opts = {}) {
   return runSearchSeed(opts);
 }
 
+/**
+ * For products in DB that weren't updated by the general seed queries,
+ * search ML by their title and try to find a matching price.
+ * Covers ~30-60% of uncovered products (those that appear in ML search results).
+ */
+export async function refreshUncoveredProducts({ limit = 150, delayMs = 250 } = {}) {
+  const cutoff = new Date(Date.now() - 8 * 3_600_000);
+  const products = await prisma.product.findMany({
+    where: {
+      prices: { some: {} },
+      OR: [{ lastTracked: null }, { lastTracked: { lt: cutoff } }],
+    },
+    select: { id: true, title: true },
+    orderBy: { lastTracked: "asc" },
+    take: limit,
+  });
+
+  if (!products.length) {
+    console.log("[refresh] all products recently updated");
+    return { updated: 0 };
+  }
+
+  console.log(`[refresh] checking ${products.length} stale products via title search`);
+  let updated = 0;
+
+  for (const product of products) {
+    try {
+      const q = product.title.slice(0, 55).trim();
+      const url = `https://api.mercadolibre.com/sites/MLA/search?q=${encodeURIComponent(q)}&limit=20&fields=results.id,results.price,results.thumbnail,results.permalink`;
+      const res = await fetch(url);
+      if (!res.ok) { await sleep(delayMs * 3); continue; }
+      const data = await res.json();
+      const match = data?.results?.find(r => r.id === product.id);
+      if (match?.price) {
+        await prisma.pricePoint.create({ data: { productId: product.id, price: Math.round(match.price) } });
+        await prisma.product.update({
+          where: { id: product.id },
+          data: {
+            lastTracked: new Date(),
+            ...(match.thumbnail && { image: match.thumbnail }),
+            ...(match.permalink && { url: match.permalink }),
+          },
+        });
+        updated++;
+      } else {
+        // Not found in results — mark as checked so we don't retry for 8h
+        await prisma.product.update({ where: { id: product.id }, data: { lastTracked: new Date() } });
+      }
+    } catch (e) {
+      console.warn(`[refresh] ${product.id}: ${e.message}`);
+    }
+    await sleep(delayMs);
+  }
+
+  console.log(`[refresh] done: ${updated}/${products.length} prices updated`);
+  return { updated };
+}
+
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   await runSearchSeed({ resultsPerQuery: 50 });
   await prisma.$disconnect();

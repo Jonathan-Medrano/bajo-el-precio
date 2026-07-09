@@ -662,7 +662,11 @@ app.post("/admin/import-products", requireAdmin, async (req, res) => {
 app.post("/admin/seed-catalog", requireAdmin, async (_req, res) => {
   res.json({ ok: true, message: "seeding iniciado en background" });
   // Fire and forget — no esperamos el resultado para no timeout
-  import("./seed-catalog.js").then(({ seedCatalog }) => seedCatalog()).catch(console.error);
+  import("./seed-catalog.js")
+    .then(({ seedCatalog, refreshUncoveredProducts }) =>
+      seedCatalog().then(() => refreshUncoveredProducts())
+    )
+    .catch(console.error);
 });
 // Dispara un ciclo del tracker en background (para debugging / forzar corrida).
 app.post("/admin/run-tracker", requireAdmin, async (_req, res) => {
@@ -991,7 +995,9 @@ app.listen(port, () => {
     if (seedRunning) { console.log("[seed] ya corriendo, skip"); return; }
     seedRunning = true;
     import("./seed-catalog.js")
-      .then(({ seedCatalog }) => seedCatalog({ resultsPerQuery: 50 }))
+      .then(({ seedCatalog, refreshUncoveredProducts }) =>
+        seedCatalog({ resultsPerQuery: 50 }).then(() => refreshUncoveredProducts({ limit: 150 }))
+      )
       .catch((e) => console.error("[seed] error:", e.message))
       .finally(() => { seedRunning = false; });
   };

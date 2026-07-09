@@ -29,7 +29,14 @@ export async function trackProduct(input) {
   let reading = await readProductPriceFromApi(parsed.id);
   if (!reading) reading = await readProductPrice(parsed.id, parsed.url);
   if (reading.blocked) return { error: "blocked" };
-  if (!reading.price) return { error: "no_price" };
+
+  if (!reading.price) {
+    // No fresh price available (API blocked, Playwright blocked).
+    // If the product is already in DB, return stale history rather than an error.
+    const stale = await getHistory(parsed.id);
+    if (!stale.error) return { ...stale, stale: true };
+    return { error: "no_price" };
+  }
 
   // cheapestUrl = URL del listing con mejor precio ahora. Si no hay (Playwright), usamos parsed.url.
   const bestUrl = reading.cheapestUrl ?? parsed.url;
