@@ -673,13 +673,16 @@ app.post("/admin/run-tracker", requireAdmin, async (_req, res) => {
 // TEMP: sin auth de admin para diagnosticar desde producción.
 app.get("/debug/ml-status", async (_req, res) => {
   const hasToken = !!(process.env.ML_CLIENT_ID && process.env.ML_CLIENT_SECRET);
-  try {
-    const { fetchItem } = await import("./ml/api-client.js");
-    const item = await fetchItem("MLA1499474404");
-    res.json({ ok: true, authenticated: hasToken, price: item?.price ?? null, title: item?.title?.slice(0, 40) ?? null });
-  } catch (e) {
-    res.json({ ok: false, authenticated: hasToken, error: e.message });
-  }
+  const [itemResult, searchResult] = await Promise.all([
+    import("./ml/api-client.js").then(({ fetchItem }) => fetchItem("MLA1499474404"))
+      .then(d => ({ ok: true, price: d?.price ?? null }))
+      .catch(e => ({ ok: false, error: e.message })),
+    fetch("https://api.mercadolibre.com/sites/MLA/search?q=celular&limit=1&fields=results.id,results.price")
+      .then(r => r.json())
+      .then(d => ({ ok: true, status: 200, id: d?.results?.[0]?.id, price: d?.results?.[0]?.price }))
+      .catch(e => ({ ok: false, error: e.message })),
+  ]);
+  res.json({ authenticated: hasToken, item_api: itemResult, search_api: searchResult });
 });
 
 // --- Developers landing page --------------------------------------------------
