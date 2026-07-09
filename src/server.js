@@ -234,8 +234,8 @@ app.get("/deals", async (req, res) => {
     .deals-header p { font-size: 16px; color: var(--text-soft); max-width: 580px; line-height: 1.6; }
     .deals-count { display: inline-block; background: var(--brand-bg); color: var(--brand); font-size: 13px; font-weight: 600; padding: 4px 12px; border-radius: 999px; margin-bottom: 16px; }
     .deals-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; padding-bottom: 64px; }
-    .deal-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; display: flex; flex-direction: column; transition: box-shadow 120ms, border-color 120ms, transform 120ms; }
-    .deal-card:hover { box-shadow: var(--shadow-md); border-color: rgba(230,76,30,.4); transform: translateY(-2px); }
+    .deal-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; display: flex; flex-direction: column; transition: box-shadow 120ms, transform 120ms; }
+    .deal-card:hover { box-shadow: 0 0 0 2px rgba(230,76,30,.35), 0 4px 6px -1px rgba(0,0,0,.08), 0 2px 4px -1px rgba(0,0,0,.04); transform: translateY(-2px); }
     .deal-img-wrap { background: var(--bg); aspect-ratio: 1; display: flex; align-items: center; justify-content: center; overflow: hidden; }
     .deal-img-wrap img { width: 100%; height: 100%; object-fit: contain; }
     .deal-img-ph { width: 100%; aspect-ratio: 1; background: var(--bg); }
@@ -387,7 +387,7 @@ app.get("/deals/:category", async (req, res) => {
     .breadcrumb a{color:var(--brand)}
     .deals-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px;padding-bottom:64px}
     .deal-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;display:flex;flex-direction:column;transition:box-shadow 80ms,border-color 80ms,transform 80ms}
-    .deal-card:hover{box-shadow:var(--shadow-md);border-color:rgba(230,76,30,.4);transform:translateY(-2px)}
+    .deal-card:hover{box-shadow:0 0 0 2px rgba(230,76,30,.35),0 4px 6px -1px rgba(0,0,0,.08),0 2px 4px -1px rgba(0,0,0,.04);transform:translateY(-2px)}
     .deal-img-wrap{background:var(--bg);aspect-ratio:1;display:flex;align-items:center;justify-content:center;overflow:hidden}
     .deal-img-wrap img{width:100%;height:100%;object-fit:contain}
     .deal-img-ph{width:100%;aspect-ratio:1;background:var(--bg)}

@@ -161,9 +161,9 @@
       border-radius: var(--radius);
       padding: 14px;
       cursor: pointer;
-      transition: box-shadow 120ms, border-color 120ms, transform 120ms;
+      transition: box-shadow 120ms, transform 120ms;
     }
-    .prod-card:hover { box-shadow: 0 0 0 1px rgba(0,0,0,.04), 0 4px 6px -1px rgba(0,0,0,.06); border-color: rgba(230,76,30,.4); transform: translateY(-1px); }
+    .prod-card:hover { box-shadow: 0 0 0 2px rgba(230,76,30,.35), 0 4px 6px -1px rgba(0,0,0,.08), 0 2px 4px -1px rgba(0,0,0,.04); transform: translateY(-1px); }
     .prod-card:active { transform: scale(.98); }
     /* concentric radius: card 12px, img inside with 14px padding → 8px */
     .prod-card img { width: 100%; height: 120px; object-fit: contain; background: var(--bg); border-radius: 8px; outline: 1px solid rgba(0,0,0,.04); }
@@ -220,8 +220,8 @@
     .trending-strip::-webkit-scrollbar { height: 4px; }
     .trending-strip::-webkit-scrollbar-track { background: transparent; }
     .trending-strip::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }
-    .t-card { flex-shrink: 0; width: 148px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; cursor: pointer; transition: box-shadow 120ms, border-color 120ms, transform 120ms; }
-    .t-card:hover { box-shadow: var(--shadow-md); border-color: rgba(230,76,30,.4); transform: translateY(-1px); }
+    .t-card { flex-shrink: 0; width: 148px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; cursor: pointer; transition: box-shadow 120ms, transform 120ms; }
+    .t-card:hover { box-shadow: 0 0 0 2px rgba(230,76,30,.35), 0 4px 6px -1px rgba(0,0,0,.08), 0 2px 4px -1px rgba(0,0,0,.04); transform: translateY(-1px); }
     .t-card:active { transform: scale(.98); }
     .t-card img { width: 100%; height: 96px; object-fit: contain; background: var(--bg); border-radius: 8px; outline: 1px solid rgba(0,0,0,.04); }
     .t-title { font-size: 11.5px; line-height: 1.4; min-height: 32px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; color: var(--text); margin: 8px 0 4px; }
