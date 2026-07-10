@@ -27,6 +27,12 @@ primary_region = "gru"   # São Paulo — mejor latencia para Argentina
 #   MP_WEBHOOK_SECRET
 #   PUBLIC_URL         → https://bajoelprecio.fly.dev (o dominio propio)
 #   WEB_URL            → igual que PUBLIC_URL
+#   TWITTER_API_KEY         → Consumer Key del Twitter Developer Portal
+#   TWITTER_API_SECRET      → Consumer Secret
+#   TWITTER_ACCESS_TOKEN    → Access Token (cuenta ya autenticada)
+#   TWITTER_ACCESS_SECRET   → Access Token Secret
+#   INSTAGRAM_USER_ID       → ID numérico de la cuenta Business de Instagram
+#   INSTAGRAM_ACCESS_TOKEN  → Long-lived Page Access Token (Meta Developer)
 
 [[services]]
   protocol = "tcp"

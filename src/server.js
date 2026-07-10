@@ -17,6 +17,8 @@ import { telegramWebhookHandler } from "./bot.js";
 import { renderOgImage } from "./og-image.js";
 import { prisma } from "./db.js";
 import { sendChannel } from "./telegram.js";
+import { tweetDeals } from "./twitter.js";
+import { postDealsCarouselToInstagram } from "./instagram.js";
 
 const baseUrlOf = (req) => process.env.PUBLIC_URL || `${req.protocol}://${req.get("host")}`;
 
@@ -924,6 +926,48 @@ app.post("/admin/recategorize", requireAdmin, async (_req, res) => {
   res.json({ ok: true, message: "recategorize iniciado en background" });
   import("./recategorize.js").then(({ recategorize }) => recategorize()).catch(console.error);
 });
+// Dispara el digest social manualmente (útil para probar las credenciales antes del primer post automático).
+// Postea a Twitter/X e Instagram con los deals actuales.
+app.post("/admin/post-social", requireAdmin, async (_req, res) => {
+  try {
+    const deals = await fetchDeals();
+    if (!deals.length) return res.json({ ok: false, message: "sin deals disponibles" });
+    const [twitterResult, igResult] = await Promise.allSettled([
+      tweetDeals(deals.slice(0, 3)),
+      postDealsCarouselToInstagram(deals.slice(0, 5)),
+    ]);
+    res.json({
+      ok: true,
+      deals: deals.length,
+      twitter: twitterResult.status === "fulfilled" ? "ok" : twitterResult.reason?.message,
+      instagram: igResult.status === "fulfilled" ? "ok" : igResult.reason?.message,
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+// Postea solo a Twitter/X (testing individual).
+app.post("/admin/post-twitter", requireAdmin, async (_req, res) => {
+  try {
+    const deals = await fetchDeals();
+    if (!deals.length) return res.json({ ok: false, message: "sin deals" });
+    await tweetDeals(deals.slice(0, 3));
+    res.json({ ok: true, deal: deals[0].title });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+// Postea solo a Instagram (testing individual).
+app.post("/admin/post-instagram", requireAdmin, async (_req, res) => {
+  try {
+    const deals = await fetchDeals();
+    if (!deals.length) return res.json({ ok: false, message: "sin deals" });
+    const id = await postDealsCarouselToInstagram(deals.slice(0, 5));
+    res.json({ ok: true, postId: id, deal: deals[0].title });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 // Debug: llama la API de ML (con token si está configurado) y devuelve el status HTTP.
 // TEMP: sin auth de admin para diagnosticar desde producción.
 app.get("/debug/ml-status", async (_req, res) => {
@@ -1284,31 +1328,41 @@ app.listen(port, () => {
     setInterval(runSeed, 2 * 3_600_000);
   }, 10 * 60_000);
 
-  // Daily digest: postea los top 3 deals al canal a las 09:00 ART (12:00 UTC)
+  // Daily digest: postea los top 3 deals a Telegram, Twitter/X e Instagram a las 09:00 ART (12:00 UTC)
   const digestEnabled = process.env.ALERTS_ENABLED === "1" && process.env.TELEGRAM_CHANNEL;
   if (digestEnabled) {
+    const runDigest = async () => {
+      try {
+        const deals = await fetchDeals();
+        if (!deals.length) return;
+
+        // Telegram
+        const fmtArs = n => "$" + Math.round(n).toLocaleString("es-AR");
+        const lines = deals.slice(0, 3).map((d, i) =>
+          `${i + 1}. <b>${d.title.slice(0, 60)}</b>\n   ${fmtArs(d.current)} (-${d.savingPct}% vs promedio)\n   <a href="${process.env.PUBLIC_URL}/p/${d.id}">Ver historial</a>`
+        );
+        const tgText = `🔥 <b>Mejores ofertas del día</b>\n\n${lines.join("\n\n")}\n\n<a href="${process.env.PUBLIC_URL}/deals">Ver todas las ofertas →</a>`;
+        await sendChannel(tgText).catch(e => console.warn("[digest:tg]", e.message));
+
+        // Twitter/X — thread con top 3
+        tweetDeals(deals.slice(0, 3)).catch(e => console.warn("[digest:twitter]", e.message));
+
+        // Instagram — carousel con top deals
+        postDealsCarouselToInstagram(deals.slice(0, 5)).catch(e => console.warn("[digest:instagram]", e.message));
+
+        console.log("[digest] enviado a todos los canales");
+      } catch (e) {
+        console.warn("[digest] error:", e.message);
+      }
+    };
+
     const scheduleDigest = () => {
       const now = new Date();
       const nextUTC12 = new Date(now);
       nextUTC12.setUTCHours(12, 0, 0, 0);
       if (nextUTC12 <= now) nextUTC12.setUTCDate(nextUTC12.getUTCDate() + 1);
       const msUntil = nextUTC12 - now;
-      setTimeout(async () => {
-        try {
-          const deals = await fetchDeals();
-          if (!deals.length) { scheduleDigest(); return; }
-          const fmt = n => "$" + Math.round(n).toLocaleString("es-AR");
-          const lines = deals.slice(0, 3).map((d, i) =>
-            `${i + 1}. <b>${d.title.slice(0, 60)}</b>\n   ${fmt(d.current)} (-${d.savingPct}% vs promedio)\n   <a href="${process.env.PUBLIC_URL}/p/${d.id}">Ver historial</a>`
-          );
-          const text = `🔥 <b>Mejores ofertas del día</b>\n\n${lines.join("\n\n")}\n\n<a href="${process.env.PUBLIC_URL}/deals">Ver todas las ofertas →</a>`;
-          await sendChannel(text).catch(e => console.warn("[digest]", e.message));
-          console.log("[digest] enviado");
-        } catch (e) {
-          console.warn("[digest] error:", e.message);
-        }
-        scheduleDigest();
-      }, msUntil);
+      setTimeout(async () => { await runDigest(); scheduleDigest(); }, msUntil);
       console.log(`[digest] próximo en ${Math.round(msUntil / 60_000)}min`);
     };
     scheduleDigest();

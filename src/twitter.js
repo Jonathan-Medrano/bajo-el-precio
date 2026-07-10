@@ -1,84 +1,107 @@
-import crypto from "node:crypto";
+// Twitter/X API v2 client — OAuth 1.0a signed with Node's built-in crypto.
+// Required env vars (add via `fly secrets set`):
+//   TWITTER_API_KEY, TWITTER_API_SECRET        — app credentials (Consumer Key/Secret)
+//   TWITTER_ACCESS_TOKEN, TWITTER_ACCESS_SECRET — account credentials (already authed)
+import { createHmac, randomBytes } from "node:crypto";
 
-const TWITTER_API_KEY = process.env.TWITTER_API_KEY;
-const TWITTER_API_SECRET = process.env.TWITTER_API_SECRET;
-const TWITTER_ACCESS_TOKEN = process.env.TWITTER_ACCESS_TOKEN;
-const TWITTER_ACCESS_SECRET = process.env.TWITTER_ACCESS_SECRET;
+const TWITTER_API = "https://api.twitter.com";
 
-// In-memory rate limit: max 10 tweets/day, 24h cooldown per product
-const posted = new Map(); // productId -> lastTimestamp
-let dayCounter = 0;
-let currentDay = 0;
-const MAX_PER_DAY = 10;
-const COOLDOWN = 24 * 3_600_000;
+const pct = (s) => encodeURIComponent(String(s ?? ""));
 
-function pct(s) {
-  return encodeURIComponent(String(s))
-    .replace(/!/g, "%21").replace(/'/g, "%27")
-    .replace(/\(/g, "%28").replace(/\)/g, "%29").replace(/\*/g, "%2A");
+function oauthSign(method, url, oauthParams, consumerSecret, tokenSecret) {
+  const sortedPairs = Object.entries(oauthParams)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([k, v]) => `${pct(k)}=${pct(v)}`)
+    .join("&");
+  const base = `${method}&${pct(url)}&${pct(sortedPairs)}`;
+  const sigKey = `${pct(consumerSecret)}&${pct(tokenSecret)}`;
+  return createHmac("sha1", sigKey).update(base).digest("base64");
 }
 
-function sign(method, url, params, consumerSecret, tokenSecret) {
-  const sorted = Object.keys(params).sort().map(k => `${pct(k)}=${pct(params[k])}`).join("&");
-  const base = `${method}&${pct(url)}&${pct(sorted)}`;
-  const key = `${pct(consumerSecret)}&${pct(tokenSecret)}`;
-  return crypto.createHmac("sha1", key).update(base).digest("base64");
-}
-
-export async function tweetPriceDrop({ title, currentPrice, prevMin, savingPct, productId, webUrl }) {
-  if (!TWITTER_API_KEY) return; // secrets not configured, skip silently
-
-  const now = Date.now();
-  const today = Math.floor(now / 86_400_000);
-  if (currentDay !== today) { currentDay = today; dayCounter = 0; }
-  if (dayCounter >= MAX_PER_DAY) return;
-  const lastPosted = posted.get(productId);
-  if (lastPosted && (now - lastPosted) < COOLDOWN) return;
-
-  const fmt = n => "$" + Number(n).toLocaleString("es-AR");
-  const text = [
-    `📉 ${title.slice(0, 80).trim()}`,
-    ``,
-    `💵 Ahora: ${fmt(currentPrice)}`,
-    savingPct > 0 ? `📊 Nuevo mínimo (antes ${fmt(prevMin)}, -${savingPct}%)` : "",
-    ``,
-    `Ver historial → ${webUrl}`,
-    ``,
-    `#MercadoLibre #Ofertas #Argentina`,
-  ].filter(l => l !== null).join("\n");
-
-  const tweetUrl = "https://api.twitter.com/2/tweets";
-  const nonce = crypto.randomBytes(16).toString("hex");
-  const ts = String(Math.floor(now / 1000));
-
-  const oauthParams = {
-    oauth_consumer_key: TWITTER_API_KEY,
+function buildAuthHeader(method, url, key, secret, tok, tokSec) {
+  const nonce = randomBytes(16).toString("hex");
+  const ts = String(Math.floor(Date.now() / 1000));
+  const params = {
+    oauth_consumer_key: key,
     oauth_nonce: nonce,
     oauth_signature_method: "HMAC-SHA1",
     oauth_timestamp: ts,
-    oauth_token: TWITTER_ACCESS_TOKEN,
+    oauth_token: tok,
     oauth_version: "1.0",
   };
-  oauthParams.oauth_signature = sign("POST", tweetUrl, oauthParams, TWITTER_API_SECRET, TWITTER_ACCESS_SECRET);
+  params.oauth_signature = oauthSign(method, url, params, secret, tokSec);
+  const parts = Object.entries(params)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([k, v]) => `${pct(k)}="${pct(v)}"`);
+  return "OAuth " + parts.join(", ");
+}
 
-  const authHeader = "OAuth " + Object.keys(oauthParams).sort()
-    .map(k => `${pct(k)}="${pct(oauthParams[k])}"`)
-    .join(", ");
+function creds() {
+  const { TWITTER_API_KEY: key, TWITTER_API_SECRET: secret, TWITTER_ACCESS_TOKEN: tok, TWITTER_ACCESS_SECRET: tokSec } = process.env;
+  if (!key || !secret || !tok || !tokSec) return null;
+  return { key, secret, tok, tokSec };
+}
 
-  try {
-    const r = await fetch(tweetUrl, {
-      method: "POST",
-      headers: { Authorization: authHeader, "Content-Type": "application/json" },
-      body: JSON.stringify({ text }),
-    });
-    if (!r.ok) {
-      console.warn(`[twitter] ${r.status}: ${await r.text()}`);
-      return;
-    }
-    dayCounter++;
-    posted.set(productId, now);
-    console.log(`[twitter] tweeted: ${title.slice(0, 50)}`);
-  } catch (e) {
-    console.warn(`[twitter] ${e.message}`);
+/**
+ * Post a single tweet. Returns the tweet ID or null if credentials missing.
+ * @param {string} text
+ * @param {string|null} [replyToId]
+ */
+export async function tweet(text, replyToId = null) {
+  const c = creds();
+  if (!c) { console.warn("[twitter] credenciales faltantes, skip"); return null; }
+
+  const url = `${TWITTER_API}/2/tweets`;
+  const auth = buildAuthHeader("POST", url, c.key, c.secret, c.tok, c.tokSec);
+  const body = { text };
+  if (replyToId) body.reply = { in_reply_to_tweet_id: replyToId };
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { Authorization: auth, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (!res.ok || data.errors) {
+    console.error("[twitter] error:", JSON.stringify(data));
+    return null;
+  }
+  console.log("[twitter] tweeted:", data.data.id);
+  return data.data.id;
+}
+
+const fmt = (n) => "$" + Math.round(n).toLocaleString("es-AR");
+
+/**
+ * Post top deals as a Twitter thread.
+ * First tweet = top deal; replies = #2 and #3.
+ */
+export async function tweetDeals(deals) {
+  if (!deals?.length) return;
+  const baseUrl = process.env.PUBLIC_URL || "https://bajoelprecio.fly.dev";
+  const top = deals[0];
+
+  const anchor = [
+    `🔥 ${top.title.slice(0, 90)}`,
+    "",
+    `${fmt(top.current)} — −${top.savingPct}% vs promedio histórico`,
+    "",
+    `Historial real: ${baseUrl}/p/${top.id}`,
+    "",
+    "#MercadoLibre #Ofertas #BajoElPrecio",
+  ].join("\n");
+
+  const anchorId = await tweet(anchor);
+  if (!anchorId) return;
+
+  let lastId = anchorId;
+  for (const d of deals.slice(1, 3)) {
+    const text = [
+      `${fmt(d.current)} — −${d.savingPct}% vs promedio`,
+      d.title.slice(0, 100),
+      `${baseUrl}/p/${d.id}`,
+    ].join("\n");
+    const id = await tweet(text, lastId);
+    if (id) lastId = id;
   }
 }
