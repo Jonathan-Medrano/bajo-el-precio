@@ -969,6 +969,17 @@ app.post("/admin/post-instagram", requireAdmin, async (_req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
+// Inyecta cookies de Twitter en el contexto Playwright persistente.
+// Usar con el script scripts/export-twitter-cookies.js para subir sesión local.
+// Body: { cookies: [ { name, value, domain, path, ... } ] }
+app.post("/admin/set-twitter-cookies", requireAdmin, async (req, res) => {
+  const { cookies } = req.body ?? {};
+  if (!Array.isArray(cookies) || !cookies.length) return res.status(400).json({ error: "falta cookies" });
+  const { getContext } = await import("./ml/price-reader.js");
+  const ctx = await getContext();
+  await ctx.addCookies(cookies);
+  res.json({ ok: true, count: cookies.length });
+});
 // Test de email: envía un email de prueba a la dirección indicada.
 // Body: { to: "test@example.com" }
 app.post("/admin/test-email", requireAdmin, async (req, res) => {
