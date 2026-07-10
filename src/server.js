@@ -1061,6 +1061,67 @@ app.post("/admin/post-instagram", requireAdmin, async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
+// Preview del carousel de Instagram: muestra las slides en el browser sin publicar.
+// GET /admin/ig-preview?n=5         → top N deals del día
+// GET /admin/ig-preview?ids=MLA,MLB → productos específicos
+app.get("/admin/ig-preview", requireAdmin, async (req, res) => {
+  try {
+    const baseUrl = baseUrlOf(req);
+    let deals;
+    const ids = req.query.ids ? String(req.query.ids).split(",").map(s => s.trim()).filter(Boolean) : null;
+    if (ids?.length) {
+      deals = ids.map(id => ({ id }));
+    } else {
+      const n = Math.min(parseInt(req.query.n ?? "5", 10) || 5, 10);
+      deals = (await fetchDeals()).slice(0, n);
+    }
+    if (!deals.length) return res.status(404).send("Sin deals disponibles");
+
+    const slides = deals.map(d => ({
+      img: `${baseUrl}/og-ig/${d.id}.png`,
+      title: d.title ?? d.id,
+      id: d.id,
+    }));
+
+    const html = `<!DOCTYPE html><html lang="es">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>IG Preview — Bajó el Precio</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #111; font-family: system-ui, sans-serif; color: #fff; padding: 24px; }
+  h1 { font-size: 18px; margin-bottom: 20px; color: #e64c1e; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 24px; }
+  .slide { background: #1e1e1e; border-radius: 12px; overflow: hidden; }
+  .slide img { width: 100%; aspect-ratio: 1; display: block; }
+  .slide footer { padding: 10px 14px; font-size: 12px; color: #aaa; }
+  .slide footer a { color: #e64c1e; text-decoration: none; font-size: 11px; }
+  .hint { margin-bottom: 16px; font-size: 13px; color: #666; }
+</style>
+</head>
+<body>
+<h1>Preview carousel Instagram (${slides.length} slides)</h1>
+<p class="hint">Estas imágenes se verían como slides en el feed. No se publicó nada.</p>
+<div class="grid">
+${slides.map((s, i) => `
+  <div class="slide">
+    <img src="${s.img}" alt="slide ${i + 1}" loading="lazy">
+    <footer>
+      Slide ${i + 1} — <code>${s.id}</code>
+      &nbsp;·&nbsp;<a href="${s.img}" target="_blank">Ver PNG ↗</a>
+      &nbsp;·&nbsp;<a href="${baseUrl}/p/${s.id}" target="_blank">Ver producto ↗</a>
+    </footer>
+  </div>`).join("")}
+</div>
+</body></html>`;
+
+    res.set("Content-Type", "text/html; charset=utf-8");
+    res.send(html);
+  } catch (e) {
+    res.status(500).send(e.message);
+  }
+});
+
 // Inyecta cookies de Twitter en el contexto Playwright persistente.
 // Usar con el script scripts/export-twitter-cookies.js para subir sesión local.
 // Body: { cookies: [ { name, value, domain, path, ... } ] }
@@ -1469,8 +1530,9 @@ app.listen(port, () => {
         // Twitter/X — thread con top 3
         tweetDeals(deals.slice(0, 3)).catch(e => console.warn("[digest:twitter]", e.message));
 
-        // Instagram — carousel con top deals
-        postDealsCarouselToInstagram(deals.slice(0, 5)).catch(e => console.warn("[digest:instagram]", e.message));
+        // Instagram — desactivado hasta definir el diseño final de los creatives.
+        // Para postear manualmente: POST /admin/post-instagram con x-admin-token
+        // postDealsCarouselToInstagram(deals.slice(0, 5)).catch(e => console.warn("[digest:instagram]", e.message));
 
         console.log("[digest] enviado a todos los canales");
       } catch (e) {
