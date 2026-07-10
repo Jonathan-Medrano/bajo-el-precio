@@ -179,22 +179,24 @@ export async function tweetDeals(deals) {
 
     const top = deals[0];
     const anchorText = [
-      `🔥 ${top.title.slice(0, 90)}`,
+      `🔥 Las mejores ofertas de MercadoLibre hoy`,
       "",
-      `${fmt(top.current)} — −${top.savingPct}% vs promedio histórico`,
+      `${top.title.slice(0, 75)} — ${fmt(top.current)} (−${top.savingPct}% vs promedio)`,
       "",
-      `Historial real: ${baseUrl}/p/${top.id}`,
+      `👉 Ver historial: ${baseUrl}/p/${top.id}`,
       "",
-      "#MercadoLibre #Ofertas #BajoElPrecio",
+      "Más abajo 👇 #MercadoLibre #Ofertas #BajoElPrecio",
     ].join("\n").slice(0, 280);
 
     await composeAndPost(page, anchorText);
 
     for (const d of deals.slice(1, 3)) {
       const text = [
-        `${fmt(d.current)} — −${d.savingPct}% vs promedio`,
+        `📉 ${fmt(d.current)} — −${d.savingPct}% vs promedio histórico`,
+        "",
         d.title.slice(0, 100),
-        `${baseUrl}/p/${d.id}`,
+        "",
+        `👉 ${baseUrl}/p/${d.id}`,
         "#MercadoLibre #BajoElPrecio",
       ].join("\n").slice(0, 280);
 
@@ -213,19 +215,23 @@ export async function tweetDeals(deals) {
 }
 
 /**
- * Tweet a real-time price drop alert (fired from alerts.js when pct >= 10).
+ * Tweet a real-time price drop alert — mirrors Telegram channel broadcast.
+ * Format: price drop info + link to product history page (traffic driver).
  */
 export async function tweetPriceDrop({ title, currentPrice, prevMin, savingPct, productId, webUrl }) {
+  const pctStr = savingPct > 0 ? `−${savingPct}%` : "nuevo mínimo";
+  // Keep title short enough that the URL fits in 280 chars
+  const shortTitle = title.slice(0, 85);
   const text = [
-    `📉 ¡Bajó el precio!`,
+    `📉 ${pctStr} en MercadoLibre`,
     "",
-    `${title.slice(0, 80)}`,
+    shortTitle,
     "",
-    `${fmt(currentPrice)} — −${savingPct}% vs mínimo anterior (${fmt(prevMin)})`,
+    `Ahora: ${fmt(currentPrice)} (antes mínimo: ${fmt(prevMin)})`,
     "",
-    `Historial real: ${webUrl}`,
+    `👉 Historial real de precios: ${webUrl}`,
     "",
-    "#MercadoLibre #BajoElPrecio #Ofertas",
+    "#MercadoLibre #BajoElPrecio #Ofertas #Argentina",
   ].join("\n").slice(0, 280);
   return tweet(text);
 }
