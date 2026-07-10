@@ -394,6 +394,7 @@ ${buildNav({ active: null, baseUrl: appUrl })}
       <a href="${esc(appUrl)}/deals">Ofertas</a>
       <a href="${esc(appUrl)}/dashboard">Mis alertas</a>
       <a href="https://t.me/bajoelprecio_bot" target="_blank" rel="noopener">Bot Telegram</a>
+      <a href="${esc(appUrl)}/privacidad">Privacidad</a>
     </div>
   </div>
   <p class="footer-copy">Herramienta independiente. No afiliada a MercadoLibre S.A. Datos con fines informativos.</p>

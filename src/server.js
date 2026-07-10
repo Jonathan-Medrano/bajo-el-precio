@@ -453,6 +453,7 @@ ${buildNav({ active: "deals" })}
         <a href="/deals">Ofertas</a>
         <a href="/dashboard">Mis alertas</a>
         <a href="https://t.me/bajoelprecio_bot" target="_blank" rel="noopener">Bot Telegram</a>
+        <a href="/privacidad">Privacidad</a>
       </div>
     </div>
     <p class="footer-copy">Herramienta independiente. No afiliada a MercadoLibre S.A. · Datos con fines informativos.</p>
@@ -1083,7 +1084,7 @@ X-RateLimit-Remaining: 87</pre>
 </main>
 <footer>
   <div class="container">
-    <a href="/">Bajó el Precio</a> · <a href="https://t.me/bajoelprecio_bot" target="_blank" rel="noopener">Telegram</a> · <a href="/deals">Deals</a>
+    <a href="/">Bajó el Precio</a> · <a href="https://t.me/bajoelprecio_bot" target="_blank" rel="noopener">Telegram</a> · <a href="/deals">Deals</a> · <a href="/privacidad">Privacidad</a>
     <div style="margin-top:8px">Datos de MercadoLibre Argentina. No afiliado con MercadoLibre S.A.</div>
   </div>
 </footer>

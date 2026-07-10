@@ -8,6 +8,12 @@
   <meta property="og:title" content="Bajó el Precio — Historial real de precios de MercadoLibre">
   <meta property="og:description" content="¿Ese 40% de descuento es real? Mirá el historial completo antes de comprar.">
   <meta property="og:type" content="website">
+  <meta property="og:url" content="https://bajoelprecio.fly.dev/">
+  <meta property="og:site_name" content="Bajó el Precio">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="Bajó el Precio — Historial real de precios de MercadoLibre">
+  <meta name="twitter:description" content="¿Ese 40% de descuento es real? Mirá el historial completo antes de comprar. Alertas gratis por Telegram.">
+  <link rel="canonical" href="https://bajoelprecio.fly.dev/">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 36 36'><rect width='36' height='36' rx='9' fill='%23e64c1e'/><polyline points='7,11 14,17 21,13 28,24' fill='none' stroke='%23fff' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -331,13 +337,18 @@
     /* ──────────── MODAL ──────────── */
     .modal-backdrop { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 200; align-items: center; justify-content: center; padding: 20px; backdrop-filter: blur(4px); }
     .modal-backdrop.open { display: flex; }
-    .modal { background: var(--surface); border-radius: 20px; padding: 32px; max-width: 440px; width: 100%; box-shadow: 0 24px 56px rgba(0,0,0,.22); position: relative; }
-    .modal h3 { font-size: 20px; font-weight: 700; margin-bottom: 8px; }
-    .modal p { font-size: 14px; color: var(--text-soft); margin-bottom: 20px; line-height: 1.6; }
-    .modal-input { width: 100%; padding: 12px 14px; border: 2px solid var(--border); border-radius: 10px; font-size: 15px; font-family: inherit; outline: none; margin-bottom: 10px; transition: border-color .12s; }
+    .modal { background: var(--surface); border-radius: 20px; padding: 28px 24px; max-width: 420px; width: 100%; box-shadow: 0 24px 56px rgba(0,0,0,.22); position: relative; }
+    .modal h3 { font-size: 19px; font-weight: 800; margin-bottom: 6px; }
+    .modal > p, .modal-link-p { font-size: 14px; color: var(--text-soft); margin-bottom: 16px; line-height: 1.6; }
+    .modal-input { width: 100%; padding: 12px 14px; border: 2px solid var(--border); border-radius: 10px; font-size: 15px; font-family: inherit; outline: none; margin-bottom: 10px; transition: border-color .12s; box-sizing: border-box; }
     .modal-input:focus { border-color: var(--brand); }
     .modal-actions { display: flex; gap: 10px; }
-    .modal-close { position: absolute; right: 16px; top: 16px; background: none; border: none; font-size: 20px; cursor: pointer; color: var(--text-soft); line-height: 1; }
+    .modal-close { position: absolute; right: 14px; top: 14px; background: none; border: none; font-size: 20px; cursor: pointer; color: var(--text-soft); line-height: 1; padding: 4px; }
+    .link-code-box { background: var(--bg); border: 2px dashed var(--border); border-radius: 12px; padding: 16px; text-align: center; margin-bottom: 16px; }
+    .link-code { font-size: 38px; font-weight: 900; letter-spacing: 8px; color: var(--brand); font-variant-numeric: tabular-nums; line-height: 1; }
+    .link-code-hint { font-size: 12px; color: var(--text-xsoft); margin-top: 6px; }
+    .modal-linked { background: rgba(34,197,94,.1); border: 1.5px solid rgba(34,197,94,.3); border-radius: 10px; padding: 10px 14px; font-size: 14px; font-weight: 600; color: #16a34a; margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
+    [data-theme="dark"] .modal-linked { color: #4ade80; }
 
     /* ──────────── UTILS ──────────── */
     .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
@@ -630,8 +641,9 @@
       </div>
       <div class="footer-links">
         <a href="/deals">🔥 Ofertas</a>
-<a href="/dashboard">Mis alertas</a>
+        <a href="/dashboard">Mis alertas</a>
         <a href="https://t.me/bajoelprecio_bot" target="_blank" rel="noopener">Bot Telegram</a>
+        <a href="/privacidad">Privacidad</a>
       </div>
     </div>
     <p class="footer-copy">Herramienta independiente. No afiliada a MercadoLibre S.A. · Datos con fines informativos.</p>
@@ -642,16 +654,32 @@
 <div class="modal-backdrop" id="alert-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
   <div class="modal">
     <button class="modal-close" id="modal-close-btn" aria-label="Cerrar">✕</button>
-    <h3 id="modal-title">Activar alerta de precio</h3>
-    <p>Ingresá tu Chat ID de Telegram y el precio objetivo. El bot te avisa cuando el precio baje.</p>
-    <input class="modal-input" id="modal-chatid" type="text" placeholder="Tu Chat ID de Telegram (ej: 123456789)" />
-    <input class="modal-input" id="modal-price" type="number" placeholder="Precio objetivo en pesos (ej: 50000)" min="0" />
-    <p style="font-size:12px;color:var(--text-xsoft);margin-bottom:16px">No sabés tu ID? Mandale /start a <a href="https://t.me/bajoelprecio_bot" target="_blank" style="color:var(--brand)">@bajoelprecio_bot</a> y él te lo dice.</p>
-    <div class="modal-actions">
-      <button class="btn btn-secondary" id="modal-cancel-btn" style="flex:none;padding:11px 20px">Cancelar</button>
-      <button class="btn btn-tg" id="modal-save-btn" style="flex:1">Activar alerta</button>
+    <h3 id="modal-title">🔔 Alerta de precio</h3>
+
+    <!-- Paso 1: vincular Telegram (se oculta cuando ya está vinculado) -->
+    <div id="modal-link-section">
+      <p class="modal-link-p">Vinculá tu Telegram una sola vez — después activás alertas con un clic.</p>
+      <div class="link-code-box">
+        <div class="link-code" id="modal-code">······</div>
+        <div class="link-code-hint" id="modal-code-hint">Generando código…</div>
+      </div>
+      <a class="btn btn-tg" id="modal-tg-btn" href="#" target="_blank" rel="noopener" style="display:block;text-align:center;width:100%;box-sizing:border-box">
+        Abrir bot en Telegram →
+      </a>
+      <p id="modal-link-status" style="font-size:12px;color:var(--text-xsoft);margin-top:10px;text-align:center;min-height:16px"></p>
     </div>
-    <p id="modal-status" style="font-size:13px;margin-top:12px;color:var(--text-soft);min-height:18px"></p>
+
+    <!-- Paso 2: configurar alerta (se muestra cuando ya está vinculado) -->
+    <div id="modal-linked-section" style="display:none">
+      <div class="modal-linked" id="modal-linked-badge">✓ Telegram vinculado</div>
+      <input class="modal-input" id="modal-price" type="number" placeholder="Precio objetivo en $ (opcional — vacío = cualquier baja)" min="0">
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="modal-cancel-btn" style="flex:none;padding:11px 20px">Cancelar</button>
+        <button class="btn btn-tg" id="modal-save-btn" style="flex:1">Activar alerta</button>
+      </div>
+      <p id="modal-status" style="font-size:13px;margin-top:12px;color:var(--text-soft);min-height:18px"></p>
+      <p style="margin-top:8px"><button style="background:none;border:none;font-size:12px;color:var(--text-xsoft);cursor:pointer;padding:4px" id="modal-unlink-btn">Desvincular cuenta</button></p>
+    </div>
   </div>
 </div>
 
@@ -876,26 +904,89 @@
     } catch { $('status-msg').textContent = 'Error de conexión.'; }
   }
 
-  // ── Alert modal ──
-  $('alert-btn').addEventListener('click', () => { if (!currentProductId) return; $('alert-modal').classList.add('open'); $('modal-status').textContent = ''; $('modal-chatid').focus(); });
+  // ── Alert modal (6-digit linking code flow) ──
+  let _pollTimer = null;
+
+  function closeModal() {
+    $('alert-modal').classList.remove('open');
+    if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
+  }
+
+  function showLinked(chatId) {
+    $('modal-link-section').style.display = 'none';
+    $('modal-linked-section').style.display = '';
+    $('modal-linked-badge').textContent = '✓ ' + chatId;
+    $('modal-status').textContent = '';
+    $('modal-price').value = '';
+  }
+
+  async function startLinking() {
+    $('modal-code').textContent = '······';
+    $('modal-code-hint').textContent = 'Generando código…';
+    $('modal-link-status').textContent = '';
+    $('modal-tg-btn').href = '#';
+    try {
+      const { code } = await fetch('/api/link-code', { method: 'POST' }).then(r => r.json());
+      $('modal-code').textContent = code;
+      $('modal-code-hint').textContent = 'Enviá este código al bot de Telegram';
+      $('modal-tg-btn').href = 'https://t.me/bajoelprecio_bot?start=link_' + code;
+      $('modal-link-status').textContent = 'Esperando vinculación…';
+      if (_pollTimer) clearInterval(_pollTimer);
+      _pollTimer = setInterval(async () => {
+        try {
+          const pr = await fetch('/api/link-status/' + code);
+          if (!pr.ok) { clearInterval(_pollTimer); _pollTimer = null; $('modal-link-status').textContent = 'Código expirado. Reabrí el modal.'; return; }
+          const pd = await pr.json();
+          if (pd.chatId) {
+            clearInterval(_pollTimer); _pollTimer = null;
+            localStorage.setItem('tg_chatid', pd.chatId);
+            showLinked(pd.chatId);
+          }
+        } catch {}
+      }, 2000);
+    } catch {
+      $('modal-code-hint').textContent = 'Error al generar código. Recargá la página.';
+    }
+  }
+
+  async function openModal() {
+    if (!currentProductId) return;
+    $('alert-modal').classList.add('open');
+    const saved = localStorage.getItem('tg_chatid');
+    if (saved) {
+      showLinked(saved);
+    } else {
+      $('modal-link-section').style.display = '';
+      $('modal-linked-section').style.display = 'none';
+      await startLinking();
+    }
+  }
+
+  $('alert-btn').addEventListener('click', openModal);
   $('modal-close-btn').addEventListener('click', closeModal);
   $('modal-cancel-btn').addEventListener('click', closeModal);
   $('alert-modal').addEventListener('click', e => { if (e.target === $('alert-modal')) closeModal(); });
-  function closeModal() { $('alert-modal').classList.remove('open'); }
+
+  $('modal-unlink-btn').addEventListener('click', () => {
+    localStorage.removeItem('tg_chatid');
+    $('modal-linked-section').style.display = 'none';
+    $('modal-link-section').style.display = '';
+    startLinking();
+  });
 
   $('modal-save-btn').addEventListener('click', async () => {
-    const chatId = $('modal-chatid').value.trim();
+    const chatId = localStorage.getItem('tg_chatid');
     const targetPrice = $('modal-price').value.trim();
-    if (!chatId) { $('modal-status').textContent = 'Ingresá tu Chat ID.'; return; }
+    if (!chatId) { $('modal-status').textContent = 'Vinculá tu Telegram primero.'; return; }
     $('modal-save-btn').disabled = true;
-    $('modal-status').textContent = 'Guardando...';
+    $('modal-status').textContent = 'Guardando…';
     try {
       const d = await fetch('/api/alerts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chatId, productId: currentProductId, targetPrice: targetPrice || null, title: currentProductTitle }) }).then(r => r.json());
-      if (d.ok) { $('modal-status').textContent = '✅ ¡Alerta activada! Te avisamos por Telegram.'; setTimeout(closeModal, 2000); }
-      else if (d.error === 'limit') { $('modal-status').textContent = `Llegaste al límite gratuito (${d.limit} alertas). Usá el bot para gestionar.`; }
-      else { $('modal-status').textContent = 'Error al guardar. Verificá el Chat ID.'; }
+      if (d.ok) { $('modal-status').textContent = '✅ ¡Alerta activada! Te avisamos cuando baje.'; setTimeout(closeModal, 2200); }
+      else if (d.error === 'limit') { $('modal-status').textContent = 'Llegaste al límite gratuito. Usá el bot para gestionar.'; }
+      else { $('modal-status').textContent = 'Error al guardar. Intentá de nuevo.'; }
     } catch { $('modal-status').textContent = 'Error de conexión.'; }
-    finally  { $('modal-save-btn').disabled = false; }
+    finally { $('modal-save-btn').disabled = false; }
   });
 
   // ── Keyboard ──
