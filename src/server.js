@@ -1,4 +1,4 @@
-import { timingSafeEqual } from "node:crypto";
+import { timingSafeEqual, randomInt, createHmac } from "node:crypto";
 import compression from "compression";
 import express from "express";
 import { dirname, join } from "node:path";
@@ -15,9 +15,11 @@ import { THEME_CSS, THEME_HEAD_SCRIPT } from "./theme.js";
 import { mpWebhookHandler } from "./mercadopago.js";
 import { telegramWebhookHandler } from "./bot.js";
 import { renderOgImage } from "./og-image.js";
+import { renderIgImage } from "./ig-image.js";
 import { prisma } from "./db.js";
 import { sendChannel } from "./telegram.js";
 import { tweetDeals } from "./twitter.js";
+import { setCookies as setTwitterCookies } from "./twitter-store.js";
 import { postDealsCarouselToInstagram } from "./instagram.js";
 import { sendPriceDropEmail } from "./email.js";
 
@@ -29,6 +31,23 @@ function requireAdmin(req, res, next) {
   if (!ADMIN_TOKEN || token.length !== ADMIN_TOKEN.length ||
       !timingSafeEqual(Buffer.from(token), Buffer.from(ADMIN_TOKEN))) {
     return res.status(403).json({ error: "no autorizado" });
+  }
+  next();
+}
+
+// Session tokens: HMAC-SHA256(chatId, ADMIN_TOKEN) issued at link time.
+// Stateless — no DB needed. Clients store the token and send it as x-chat-token.
+const SESSION_SECRET = process.env.SESSION_SECRET || ADMIN_TOKEN || "dev-secret-change-me";
+function signChatId(chatId) {
+  return createHmac("sha256", SESSION_SECRET).update(String(chatId)).digest("hex");
+}
+function requireChatAuth(req, res, next) {
+  const chatId = req.params.chatId ?? req.body?.chatId;
+  const token = req.header("x-chat-token") ?? "";
+  if (!chatId || !token) return res.status(401).json({ error: "sesión requerida" });
+  const expected = signChatId(chatId);
+  if (token.length !== expected.length || !timingSafeEqual(Buffer.from(token), Buffer.from(expected))) {
+    return res.status(403).json({ error: "token inválido" });
   }
   next();
 }
@@ -70,11 +89,12 @@ app.use(express.json({
   verify: (req, _res, buf) => { req.rawBody = buf.toString(); }
 }));
 
-// CORS (para el frontend React en dev)
+// CORS: open for GET (public API + extension), restricted for user-auth endpoints.
+// The real protection on user data is requireChatAuth (x-chat-token HMAC).
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
-  res.header("Access-Control-Allow-Headers", "Content-Type");
-  res.header("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Content-Type, x-chat-token, x-admin-token");
+  res.header("Access-Control-Allow-Methods", "GET,POST,DELETE,OPTIONS");
   if (req.method === "OPTIONS") return res.sendStatus(200);
   next();
 });
@@ -110,6 +130,21 @@ app.get("/og/:id.png", async (req, res) => {
     res.send(png);
   } catch (e) {
     console.error("og-image error:", e.message);
+    res.status(500).send("error");
+  }
+});
+
+// --- Imagen Instagram 1080x1080 cuadrada por producto -------------------------
+// Formato cuadrado optimizado para feed de Instagram y carousel ads.
+app.get("/og-ig/:id.png", async (req, res) => {
+  try {
+    const png = await renderIgImage(req.params.id);
+    if (!png) return res.status(404).send("no encontrado");
+    res.set("Content-Type", "image/png");
+    res.set("Cache-Control", "public, max-age=3600");
+    res.send(png);
+  } catch (e) {
+    console.error("ig-image error:", e.message);
     res.status(500).send("error");
   }
 });
@@ -777,11 +812,20 @@ app.get("/api/product/:id", async (req, res) => {
   res.json(await getHistory(req.params.id));
 });
 
+const ML_ID_RE = /^MLAU?[A-Z0-9]{4,}$/i;
+const ML_URL_RE = /^https?:\/\/([a-z0-9-]+\.)?mercadolibre\.com(\.ar|\.com\.mx|\.com\.co|\.com\.br)?\//i;
+const ML_IMAGE_RE = /^https?:\/\/([a-z0-9-]+\.)?mlstatic\.com\//i;
+
 // Observación de la extensión: registra un punto de precio (leído de la página, sin scrapear).
-app.post("/api/observe", async (req, res) => {
+app.post("/api/observe", makeRateLimit(30, 60_000), async (req, res) => {
   const { id, price, title, image, url, category } = req.body ?? {};
+  if (!id || !ML_ID_RE.test(String(id))) return res.status(400).json({ error: "id inválido" });
+  const parsedPrice = Number(price);
+  if (!Number.isFinite(parsedPrice) || parsedPrice <= 0) return res.status(400).json({ error: "precio inválido" });
+  if (url && !ML_URL_RE.test(String(url))) return res.status(400).json({ error: "url inválida" });
+  if (image && !ML_IMAGE_RE.test(String(image))) return res.status(400).json({ error: "imagen inválida" });
   try {
-    res.json(await observeProduct({ id, price: Number(price), title, image, url, category }));
+    res.json(await observeProduct({ id, price: parsedPrice, title, image: image || undefined, url: url || undefined, category }));
   } catch (e) {
     console.error("observe error:", e.message);
     res.status(500).json({ error: "fallo" });
@@ -797,10 +841,10 @@ app.post("/api/alerts", makeRateLimit(30, 60_000), async (req, res) => {
     res.status(500).json({ error: "fallo" });
   }
 });
-app.get("/api/alerts/:chatId", async (req, res) => {
+app.get("/api/alerts/:chatId", makeRateLimit(30, 60_000), requireChatAuth, async (req, res) => {
   res.json(await listAlerts(req.params.chatId));
 });
-app.delete("/api/alerts", async (req, res) => {
+app.delete("/api/alerts", makeRateLimit(20, 60_000), requireChatAuth, async (req, res) => {
   try {
     res.json(await unsubscribeAlert(req.body ?? {}));
   } catch (e) {
@@ -831,7 +875,7 @@ app.post("/api/email-alert", makeRateLimit(5, 60_000), async (req, res) => {
 // El modal web lo muestra; el usuario lo manda al bot para vincular su chatId.
 app.post("/api/link-code", makeRateLimit(10, 60_000), async (req, res) => {
   try {
-    const code = String(Math.floor(100000 + Math.random() * 900000));
+    const code = String(randomInt(100000, 1000000));
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
     await prisma.linkingCode.upsert({
       where: { code },
@@ -854,14 +898,14 @@ app.get("/api/link-status/:code", async (req, res) => {
     if (!row || row.expiresAt < new Date()) return res.status(404).json({ linked: false });
     if (!row.chatId) return res.json({ linked: false });
     await prisma.linkingCode.delete({ where: { code } });
-    res.json({ linked: true, chatId: row.chatId });
+    res.json({ linked: true, chatId: row.chatId, token: signChatId(row.chatId) });
   } catch {
     res.status(500).json({ error: "fallo" });
   }
 });
 
 // Estado del plan de un usuario (para el bot/web: cuántas alertas usó, su tope).
-app.get("/api/plan/:chatId", async (req, res) => {
+app.get("/api/plan/:chatId", makeRateLimit(30, 60_000), requireChatAuth, async (req, res) => {
   res.json(await getPlan(req.params.chatId));
 });
 
@@ -947,6 +991,32 @@ app.post("/admin/post-social", requireAdmin, async (_req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
+// Debug: devuelve estado de la sesión de Twitter en producción.
+app.get("/admin/twitter-debug", requireAdmin, async (_req, res) => {
+  let page;
+  try {
+    const { getContext } = await import("./ml/price-reader.js");
+    const ctx = await getContext();
+    const cookies = await ctx.cookies(["https://x.com", "https://twitter.com"]);
+    const authCookies = cookies.filter(c => ["auth_token", "ct0", "twid"].includes(c.name))
+      .map(c => ({ name: c.name, value: c.value.slice(0, 16) + "...", domain: c.domain }));
+    page = await ctx.newPage();
+    await page.goto("https://x.com/home", { waitUntil: "domcontentloaded", timeout: 30000 });
+    await new Promise(r => setTimeout(r, 6000));
+    const url = page.url();
+    const title = await page.title();
+    const bodyText = await page.locator("body").innerText({ timeout: 5000 }).catch(() => "");
+    const hasAccountBtn = await page.locator('[data-testid="SideNav_AccountSwitcher_Button"]').isVisible({ timeout: 3000 }).catch(() => false);
+    const hasHomeLink = await page.locator('[data-testid="AppTabBar_Home_Link"]').isVisible({ timeout: 3000 }).catch(() => false);
+    const hasTweetBtn = await page.locator('[data-testid="tweetButtonInline"], [data-testid="tweetButton"]').isVisible({ timeout: 3000 }).catch(() => false);
+    const snippet = bodyText.slice(0, 300).replace(/\n/g, " ");
+    res.json({ url, title, hasAccountBtn, hasHomeLink, hasTweetBtn, authCookies, snippet });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  } finally {
+    await page?.close();
+  }
+});
 // Postea solo a Twitter/X (testing individual).
 app.post("/admin/post-twitter", requireAdmin, async (_req, res) => {
   try {
@@ -958,13 +1028,35 @@ app.post("/admin/post-twitter", requireAdmin, async (_req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
-// Postea solo a Instagram (testing individual).
-app.post("/admin/post-instagram", requireAdmin, async (_req, res) => {
+// Postea a Instagram con los top deals del día (o con IDs específicos).
+// Body opcional: { productIds: ["MLA123", "MLA456"] } para forzar productos específicos.
+app.post("/admin/post-instagram", requireAdmin, async (req, res) => {
   try {
-    const deals = await fetchDeals();
+    let deals;
+    const { productIds } = req.body ?? {};
+    if (Array.isArray(productIds) && productIds.length) {
+      const histories = await Promise.all(
+        productIds.slice(0, 10).map(async (pid) => {
+          const d = await getHistory(pid);
+          if (d.error) return null;
+          return {
+            id: pid,
+            title: d.product?.title ?? pid,
+            current: d.stats?.last ?? 0,
+            savingPct: d.stats?.max && d.stats?.last && d.stats.max > d.stats.last
+              ? Math.round((1 - d.stats.last / d.stats.max) * 100)
+              : 0,
+            category: d.product?.category ?? null,
+          };
+        })
+      );
+      deals = histories.filter(Boolean);
+    } else {
+      deals = await fetchDeals();
+    }
     if (!deals.length) return res.json({ ok: false, message: "sin deals" });
-    const id = await postDealsCarouselToInstagram(deals.slice(0, 5));
-    res.json({ ok: true, postId: id, deal: deals[0].title });
+    const postId = await postDealsCarouselToInstagram(deals.slice(0, 5));
+    res.json({ ok: true, postId, deals: deals.length, first: deals[0].title });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -975,9 +1067,11 @@ app.post("/admin/post-instagram", requireAdmin, async (_req, res) => {
 app.post("/admin/set-twitter-cookies", requireAdmin, async (req, res) => {
   const { cookies } = req.body ?? {};
   if (!Array.isArray(cookies) || !cookies.length) return res.status(400).json({ error: "falta cookies" });
-  const { getContext } = await import("./ml/price-reader.js");
+  setTwitterCookies(cookies);
+  const { getContext, saveTwitterCookies } = await import("./ml/price-reader.js");
   const ctx = await getContext();
   await ctx.addCookies(cookies);
+  saveTwitterCookies(cookies); // persist to volume so cookies survive deploys
   res.json({ ok: true, count: cookies.length });
 });
 // Test de email: envía un email de prueba a la dirección indicada.
@@ -998,9 +1092,7 @@ app.post("/admin/test-email", requireAdmin, async (req, res) => {
   });
   res.json({ ok, to, product: deal.title });
 });
-// Debug: llama la API de ML (con token si está configurado) y devuelve el status HTTP.
-// TEMP: sin auth de admin para diagnosticar desde producción.
-app.get("/debug/ml-status", async (_req, res) => {
+app.get("/debug/ml-status", requireAdmin, async (_req, res) => {
   const hasToken = !!(process.env.ML_CLIENT_ID && process.env.ML_CLIENT_SECRET);
   const [itemResult, searchResult] = await Promise.all([
     import("./ml/api-client.js").then(({ fetchItem }) => fetchItem("MLA1499474404"))

@@ -3,8 +3,8 @@
 //   INSTAGRAM_USER_ID     — numeric ID of the Instagram Business/Creator account
 //   INSTAGRAM_ACCESS_TOKEN — long-lived Page Access Token with instagram_basic + content_publish scopes
 //
-// Image source: we reuse the existing /og/:id.png endpoint (publicly accessible HTTPS URL).
-// Instagram fetches the image directly from that URL — no upload step needed.
+// Image source: /og-ig/:id.png endpoint (1080x1080 square, Instagram-optimized).
+// Instagram fetches images directly from these public HTTPS URLs — no upload step needed.
 
 const IG_API = "https://graph.facebook.com/v19.0";
 
@@ -42,30 +42,47 @@ async function publishContainer({ creationId, userId, token }) {
 }
 
 const fmt = (n) => "$" + Math.round(n).toLocaleString("es-AR");
-const tag = (s) => s.toLowerCase().replace(/[^\w]/g, "");
+const tag = (s) => s.toLowerCase().replace(/[^\w]/g, "").slice(0, 24);
 
-function buildCaption(deal, baseUrl) {
-  const hashtags = [
-    "#mercadolibre",
-    "#ofertasML",
-    "#bajoelprecio",
-    "#descuentos",
-    "#comprasinteligentes",
-    "#argentina",
-    deal.category ? `#${tag(deal.category)}` : null,
-  ]
-    .filter(Boolean)
-    .join(" ");
+const BASE_HASHTAGS = "#mercadolibre #ofertasML #bajoelprecio #descuentos #comprasinteligentes #argentina #precio";
+
+function buildSingleCaption(deal, baseUrl) {
+  const saving = deal.savingPct >= 5
+    ? `⬇️ −${deal.savingPct}% vs el precio máximo histórico`
+    : `💰 Precio actual: ${fmt(deal.current)}`;
+  const extra = deal.category ? ` #${tag(deal.category)}` : "";
 
   return [
-    `🔥 ${deal.title.slice(0, 120)}`,
+    `⚠️ ¿El descuento es real o te están metiendo el dedo?`,
     "",
-    `${fmt(deal.current)} — ${deal.savingPct}% más barato que el promedio`,
+    `📦 ${deal.title.slice(0, 110)}`,
+    saving,
     "",
-    "Historial real de precios, sin precios inflados ni trucos.",
-    `👉 ${baseUrl}/p/${deal.id}`,
+    `Rastreamos el historial real de precios en MercadoLibre para que vos decidas con datos, no con marketing.`,
     "",
-    hashtags,
+    `👉 Ver historial: ${baseUrl}/p/${deal.id}`,
+    `🔔 Activá tu alerta gratis en ${baseUrl}`,
+    "",
+    BASE_HASHTAGS + extra,
+  ].join("\n");
+}
+
+function buildCarouselCaption(deals, baseUrl) {
+  const count = deals.length;
+  const extra = deals[0]?.category ? ` #${tag(deals[0].category)}` : "";
+
+  return [
+    `⚠️ MercadoLibre te muestra "50% OFF"... pero ¿es real?`,
+    "",
+    `👆 Swipe para ver ${count} descuentos con historial real de precios.`,
+    `No opiniones — datos.`,
+    "",
+    `Bajó el Precio rastrea el historial de cada producto para que sepas si el precio de hoy es realmente una oferta o solo marketing.`,
+    "",
+    `✅ Gratis, sin registro en: ${baseUrl}`,
+    `🔔 Activá alertas de precio por Telegram`,
+    "",
+    BASE_HASHTAGS + extra,
   ].join("\n");
 }
 
@@ -78,8 +95,8 @@ export async function postDealToInstagram(deal) {
   if (!c) { console.warn("[instagram] credenciales faltantes, skip"); return null; }
 
   const baseUrl = process.env.PUBLIC_URL || "https://bajoelprecio.fly.dev";
-  const imageUrl = `${baseUrl}/og/${deal.id}.png`;
-  const caption = buildCaption(deal, baseUrl);
+  const imageUrl = `${baseUrl}/og-ig/${deal.id}.png`;
+  const caption = buildSingleCaption(deal, baseUrl);
 
   try {
     const creationId = await createMediaContainer({ imageUrl, caption, ...c });
@@ -113,7 +130,7 @@ export async function postDealsCarouselToInstagram(deals) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          image_url: `${baseUrl}/og/${d.id}.png`,
+          image_url: `${baseUrl}/og-ig/${d.id}.png`,
           is_carousel_item: true,
           access_token: c.token,
         }),
@@ -124,8 +141,7 @@ export async function postDealsCarouselToInstagram(deals) {
       await new Promise((r) => setTimeout(r, 500));
     }
 
-    const top = deals[0];
-    const caption = buildCaption(top, baseUrl);
+    const caption = buildCarouselCaption(deals, baseUrl);
 
     // Step 2: create carousel container
     const carRes = await fetch(`${IG_API}/${c.userId}/media`, {
