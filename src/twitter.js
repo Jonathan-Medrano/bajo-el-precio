@@ -122,23 +122,22 @@ async function ensureLoggedIn(page) {
 }
 
 async function composeAndPost(page, text) {
-  // X sometimes needs a fresh navigation to show the compose box
-  const url = page.url();
-  if (!url.includes("x.com/home") && !url.includes("twitter.com/home")) {
-    await page.goto("https://x.com/home", { waitUntil: "domcontentloaded", timeout: 30000 });
-    await sleep(jitter(2000, 3000));
-  }
+  // Navigate directly to the compose URL — avoids home page overlay intercept issues
+  await page.goto("https://x.com/compose/post", { waitUntil: "domcontentloaded", timeout: 30000 });
+  await sleep(jitter(2000, 3000));
 
-  const compose = page.locator('[data-testid="tweetTextarea_0"]').first();
+  // The compose modal: textarea or contenteditable div
+  const compose = page.locator('[data-testid="tweetTextarea_0"], [contenteditable="true"][data-lexical-editor="true"]').first();
   await compose.waitFor({ state: "visible", timeout: 15000 });
-  await compose.click();
+  await compose.click({ force: true });
   await sleep(jitter(400, 800));
   await page.keyboard.type(text.slice(0, 280), { delay: jitter(25, 60) });
   await sleep(jitter(800, 1500));
 
-  const postBtn = page.locator('[data-testid="tweetButtonInline"]').first();
+  // "Post" button — try both inline and modal variants
+  const postBtn = page.locator('[data-testid="tweetButton"], [data-testid="tweetButtonInline"]').first();
   await postBtn.waitFor({ state: "visible", timeout: 10000 });
-  await postBtn.click();
+  await postBtn.click({ force: true });
   await sleep(jitter(3000, 5000));
 }
 
@@ -200,9 +199,6 @@ export async function tweetDeals(deals) {
         "#MercadoLibre #BajoElPrecio",
       ].join("\n").slice(0, 280);
 
-      // Navigate home to reset compose box state
-      await page.goto("https://x.com/home", { waitUntil: "domcontentloaded", timeout: 30000 });
-      await sleep(jitter(2000, 3000));
       await composeAndPost(page, text);
     }
 
