@@ -19,6 +19,7 @@ import { prisma } from "./db.js";
 import { sendChannel } from "./telegram.js";
 import { tweetDeals } from "./twitter.js";
 import { postDealsCarouselToInstagram } from "./instagram.js";
+import { sendPriceDropEmail } from "./email.js";
 
 const baseUrlOf = (req) => process.env.PUBLIC_URL || `${req.protocol}://${req.get("host")}`;
 
@@ -967,6 +968,24 @@ app.post("/admin/post-instagram", requireAdmin, async (_req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+});
+// Test de email: envía un email de prueba a la dirección indicada.
+// Body: { to: "test@example.com" }
+app.post("/admin/test-email", requireAdmin, async (req, res) => {
+  const { to } = req.body ?? {};
+  if (!to) return res.status(400).json({ error: "falta to" });
+  const deals = await fetchDeals();
+  const deal = deals[0];
+  if (!deal) return res.json({ ok: false, message: "sin deals para el test" });
+  const ok = await sendPriceDropEmail({
+    to,
+    productTitle: deal.title,
+    currentPrice: deal.current,
+    targetPrice: null,
+    productUrl: deal.url || `https://bajoelprecio.fly.dev/p/${deal.id}`,
+    historyUrl: `https://bajoelprecio.fly.dev/p/${deal.id}`,
+  });
+  res.json({ ok, to, product: deal.title });
 });
 // Debug: llama la API de ML (con token si está configurado) y devuelve el status HTTP.
 // TEMP: sin auth de admin para diagnosticar desde producción.

@@ -73,6 +73,24 @@ export async function tweet(text, replyToId = null) {
 const fmt = (n) => "$" + Math.round(n).toLocaleString("es-AR");
 
 /**
+ * Tweet a real-time price drop alert (fired from alerts.js when pct >= 10).
+ */
+export async function tweetPriceDrop({ title, currentPrice, prevMin, savingPct, productId, webUrl }) {
+  const text = [
+    `📉 ¡Bajó el precio!`,
+    "",
+    `${title.slice(0, 80)}`,
+    "",
+    `${fmt(currentPrice)} — −${savingPct}% vs mínimo anterior (${fmt(prevMin)})`,
+    "",
+    `Historial real: ${webUrl}`,
+    "",
+    "#MercadoLibre #BajoElPrecio #Ofertas",
+  ].join("\n");
+  return tweet(text);
+}
+
+/**
  * Post top deals as a Twitter thread.
  * First tweet = top deal; replies = #2 and #3.
  */

@@ -95,12 +95,13 @@ model Referral {
 
 /// Email de alguien que quiere recibir notificaciones de bajada de precio (alternativa sin Telegram).
 model EmailAlert {
-  id          Int      @id @default(autoincrement())
-  email       String
-  productId   String
-  product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
-  targetPrice Int?     // null = avisar en cada nuevo mínimo
-  createdAt   DateTime @default(now())
+  id                Int      @id @default(autoincrement())
+  email             String
+  productId         String
+  product           Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  targetPrice       Int?     // null = avisar en cada nuevo mínimo
+  lastNotifiedPrice Int?     // anti-spam: solo re-notificamos si el precio baja más
+  createdAt         DateTime @default(now())
 
   @@unique([email, productId])
   @@index([productId])

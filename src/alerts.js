@@ -6,6 +6,7 @@
 import { prisma } from "./db.js";
 import { affiliateUrl } from "./affiliate.js";
 import { sendChannel, sendUser, alertsEnabled } from "./telegram.js";
+import { sendPriceDropEmail } from "./email.js";
 
 const MIN_HISTORY = 3; // no gritamos "bajó" sin algo de historial
 const WEB_URL = process.env.PUBLIC_URL || process.env.WEB_URL || "http://localhost:3000";
@@ -16,7 +17,11 @@ export async function onNewPrice(productId, newPrice) {
   try {
     const product = await prisma.product.findUnique({
       where: { id: productId },
-      include: { prices: { orderBy: { seenAt: "desc" } }, alerts: true },
+      include: {
+        prices: { orderBy: { seenAt: "desc" } },
+        alerts: true,
+        emailAlerts: true,
+      },
     });
     if (!product) return;
 
@@ -68,6 +73,28 @@ export async function onNewPrice(productId, newPrice) {
       const ok = await fire(`DM ${alert.chatId}`, text, () => sendUser(alert.chatId, text));
       if (ok) {
         await prisma.alert.update({ where: { id: alert.id }, data: { lastNotifiedPrice: newPrice } });
+      }
+    }
+    // --- Email alerts ---
+    for (const ea of product.emailAlerts) {
+      const matchTarget = ea.targetPrice != null ? newPrice <= ea.targetPrice : isNewLow;
+      const notSpam = ea.lastNotifiedPrice == null || newPrice < ea.lastNotifiedPrice;
+      if (!matchTarget || !notSpam || !enoughHistory) continue;
+
+      const historyUrl = `${WEB_URL}/p/${productId}`;
+      const productUrl = affiliateUrl(product.url) || product.url || historyUrl;
+      const ok = await fire(`EMAIL ${ea.email}`, `[email] ${fmt(newPrice)} → ${ea.email}`, () =>
+        sendPriceDropEmail({
+          to: ea.email,
+          productTitle: product.title,
+          currentPrice: newPrice,
+          targetPrice: ea.targetPrice,
+          productUrl,
+          historyUrl,
+        })
+      );
+      if (ok) {
+        await prisma.emailAlert.update({ where: { id: ea.id }, data: { lastNotifiedPrice: newPrice } });
       }
     }
   } catch (e) {
