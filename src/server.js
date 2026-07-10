@@ -137,6 +137,8 @@ async function fetchDeals({ category } = {}) {
   const products = await prisma.product.findMany({
     where: {
       prices: { some: {} },
+      image: { not: null },
+      title: { not: "(por scrapear)" },
       ...(category ? { category: { equals: category, mode: "insensitive" } } : {}),
     },
     select: {
@@ -1033,7 +1035,7 @@ app.get("/api/compare/:id", async (req, res) => {
 // Catálogo: productos (ya scrapeados) agrupados por categoría, con su precio actual. Para el home.
 app.get("/api/catalog", async (_req, res) => {
   const products = await prisma.product.findMany({
-    where: { prices: { some: {} } },
+    where: { prices: { some: {} }, image: { not: null }, title: { not: "(por scrapear)" } },
     select: {
       id: true,
       title: true,
@@ -1070,6 +1072,8 @@ app.get("/api/trending", async (_req, res) => {
   const products = await prisma.product.findMany({
     where: {
       prices: { some: { seenAt: { gte: oneDayAgo } } },
+      image: { not: null },
+      title: { not: "(por scrapear)" },
     },
     select: {
       id: true,

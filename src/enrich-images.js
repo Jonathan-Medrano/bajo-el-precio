@@ -36,13 +36,13 @@ async function fetchImage(id, token) {
         const thumb = item?.secure_thumbnail || item?.thumbnail || null;
         if (thumb) return thumb;
 
-        // 3) Deep fallback: high-res pictures from the item listing itself
+        // 3) Deep fallback: pictures from the catalog product entry for this item
         if (item?.item_id) {
           try {
-            const itemRes = await fetch(`${ML}/items/${item.item_id}`, { headers });
-            if (itemRes.ok) {
-              const itemData = await itemRes.json();
-              const pic = itemData.pictures?.[0];
+            const prodRes = await fetch(`${ML}/products/${item.item_id}`, { headers });
+            if (prodRes.ok) {
+              const prodData = await prodRes.json();
+              const pic = prodData.pictures?.[0];
               const img = pic?.secure_url || pic?.url || null;
               if (img) return img;
             }
