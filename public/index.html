@@ -85,6 +85,9 @@
       border: 1px solid rgba(230,76,30,.2);
     }
     @keyframes pulse { 0%,100%{box-shadow:0 0 0 2px rgba(230,76,30,.3)} 50%{box-shadow:0 0 0 5px rgba(230,76,30,.0)} }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #onboarding-toast { position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--text);color:#fff;font-size:13px;font-weight:500;padding:12px 20px;border-radius:999px;white-space:nowrap;opacity:0;transition:opacity .3s,transform .3s;pointer-events:none;z-index:9999 }
+    #onboarding-toast.show { opacity:1;transform:translateX(-50%) translateY(0) }
     .badge-dot { width: 7px; height: 7px; background: var(--brand); border-radius: 50%; display: inline-block; box-shadow: 0 0 0 2px rgba(230,76,30,.3); animation: pulse 2s ease-in-out infinite; }
     .hero h1 {
       font-size: clamp(34px, 5.5vw, 60px);
@@ -660,7 +663,9 @@
   async function search() {
     const url = $('url-input').value.trim();
     if (!url) return;
-    $('search-btn').disabled = true;
+    const btn = $('search-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" style="animation:spin .7s linear infinite;vertical-align:middle;margin-right:6px"><path d="M12 2a10 10 0 0 1 10 10"/></svg>Buscando…';
     $('status-msg').textContent = 'Leyendo precio...';
     try {
       const r = await fetch('/api/track', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url }) });
@@ -671,8 +676,9 @@
       renderResult(data);
       $('result-section').style.display = 'block';
       $('result-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      showOnboardingToast();
     } catch { $('status-msg').textContent = 'Error de conexión. Intentá de nuevo.'; }
-    finally  { $('search-btn').disabled = false; }
+    finally  { btn.disabled = false; btn.textContent = 'Ver historial →'; }
   }
 
   function errorMsg(code) {
@@ -877,6 +883,16 @@
   $('search-btn').addEventListener('click', search);
   $('url-input').addEventListener('keydown', e => e.key === 'Enter' && search());
 
+  // ── Onboarding toast ──
+  let _toastShown = false;
+  function showOnboardingToast() {
+    if (_toastShown) return;
+    _toastShown = true;
+    const t = $('onboarding-toast');
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 5000);
+  }
+
   // ── Init ──
   loadStats();
   loadDeals();
@@ -886,6 +902,7 @@
   const params = new URLSearchParams(location.search);
   if (params.get('id')) loadProduct(params.get('id'));
 </script>
+<div id="onboarding-toast">Activá alertas de precio desde el bot de Telegram →</div>
 <script src="/theme.js"></script>
 </body>
 </html>

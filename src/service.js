@@ -26,7 +26,7 @@ export async function trackProduct(input) {
   if (!parsed) return { error: "no_product" };
 
   // API-first: más rápido y sin riesgo de CAPTCHA. Playwright como fallback.
-  let reading = await readProductPriceFromApi(parsed.id);
+  let reading = await readProductPriceFromApi(parsed.id, parsed.type);
   if (!reading) reading = await readProductPrice(parsed.id, parsed.url);
   if (reading.blocked) return { error: "blocked" };
 
@@ -40,10 +40,11 @@ export async function trackProduct(input) {
 
   // cheapestUrl = URL del listing con mejor precio ahora. Si no hay (Playwright), usamos parsed.url.
   const bestUrl = reading.cheapestUrl ?? parsed.url;
+  const bestTitle = reading.title ?? parsed.titleHint ?? undefined;
   await prisma.product.upsert({
     where: { id: parsed.id },
-    update: { title: reading.title ?? undefined, url: bestUrl, image: reading.image ?? undefined, queries: { increment: 1 } },
-    create: { id: parsed.id, title: reading.title ?? "Producto", url: bestUrl, image: reading.image, queries: 1 },
+    update: { title: bestTitle, url: bestUrl, image: reading.image ?? undefined, queries: { increment: 1 } },
+    create: { id: parsed.id, title: bestTitle ?? "Producto", url: bestUrl, image: reading.image, queries: 1 },
   });
   await prisma.pricePoint.create({ data: { productId: parsed.id, price: reading.price } });
   await onNewPrice(parsed.id, reading.price);
@@ -98,20 +99,39 @@ export async function subscribeAlert({ chatId, productId, targetPrice, title, ur
   return { ok: true, alert };
 }
 
-/** Lista las alertas de un usuario (con el precio actual de cada producto). */
+/** Lista las alertas de un usuario con historial completo (para el dashboard). */
 export async function listAlerts(chatId) {
   const alerts = await prisma.alert.findMany({
     where: { chatId: String(chatId) },
-    include: { product: { include: { prices: { orderBy: { seenAt: "desc" }, take: 1 } } } },
+    include: {
+      product: {
+        include: { prices: { orderBy: { seenAt: "desc" }, take: 200, select: { price: true } } },
+      },
+    },
     orderBy: { createdAt: "desc" },
   });
-  return alerts.map((a) => ({
-    id: a.id,
-    productId: a.productId,
-    title: a.product.title,
-    targetPrice: a.targetPrice,
-    currentPrice: a.product.prices[0]?.price ?? null,
-  }));
+  return alerts.map((a) => {
+    const prices = a.product.prices.map((p) => p.price).reverse();
+    const current = prices.at(-1) ?? null;
+    const min = prices.length ? Math.min(...prices) : null;
+    const max = prices.length ? Math.max(...prices) : null;
+    const avg = prices.length ? Math.round(prices.reduce((s, p) => s + p, 0) / prices.length) : null;
+    return {
+      id: a.id,
+      productId: a.productId,
+      title: a.product.title,
+      image: a.product.image,
+      url: a.product.url,
+      targetPrice: a.targetPrice,
+      currentPrice: current,
+      min,
+      max,
+      avg,
+      spark: prices.slice(-24),
+      score: dealScore(prices),
+      trend: prices.length >= 5 ? buildIntelligence(prices).trend : "estable",
+    };
+  });
 }
 
 /** Borra una suscripción por alertId o productId. */
@@ -158,7 +178,7 @@ export async function getHistory(id) {
 
 function buildIntelligence(prices) {
   if (prices.length < 5) {
-    return { confidence: 0, isDeal: false, trend: "estable", recommendation: "⚪ Insuficiente historial para recomendar" };
+    return { confidence: 0, isDeal: false, trend: "estable", recommendation: "⚪ Insuficiente historial para recomendar", score: null };
   }
 
   const avg = prices.reduce((s, p) => s + p, 0) / prices.length;
@@ -191,5 +211,34 @@ function buildIntelligence(prices) {
     recommendation = "⚪ Insuficiente historial para recomendar";
   }
 
-  return { confidence, isDeal, trend, recommendation };
+  return { confidence, isDeal, trend, recommendation, score: dealScore(prices) };
+}
+
+/** Puntaje del deal de 1 (pésimo) a 10 (mínimo histórico). */
+function dealScore(prices) {
+  if (prices.length < 3) return null;
+  const min = Math.min(...prices);
+  const max = Math.max(...prices);
+  const current = prices.at(-1);
+  const range = max - min;
+
+  // Precio muy estable → score neutro
+  if (range < min * 0.02) return 5;
+
+  // Posición en el rango histórico: 10 = en el mínimo, 1 = en el máximo
+  const posScore = 10 - ((current - min) / range) * 9;
+
+  // Ajuste de tendencia: bajando es bueno (+1), subiendo es malo (-1)
+  const recent = prices.slice(-4);
+  const earlier = prices.slice(-8, -4);
+  let trendAdj = 0;
+  if (earlier.length >= 2) {
+    const r = recent.reduce((s, p) => s + p, 0) / recent.length;
+    const e = earlier.reduce((s, p) => s + p, 0) / earlier.length;
+    const pct = (r - e) / e;
+    if (pct < -0.03) trendAdj = 1;
+    else if (pct > 0.03) trendAdj = -1;
+  }
+
+  return Math.max(1, Math.min(10, Math.round(posScore + trendAdj)));
 }

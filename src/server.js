@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import compression from "compression";
 import express from "express";
 import { dirname, join } from "node:path";
@@ -21,10 +22,35 @@ const baseUrlOf = (req) => process.env.PUBLIC_URL || `${req.protocol}://${req.ge
 
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN;
 function requireAdmin(req, res, next) {
-  if (!ADMIN_TOKEN || req.header("x-admin-token") !== ADMIN_TOKEN) {
+  const token = req.header("x-admin-token") ?? "";
+  if (!ADMIN_TOKEN || token.length !== ADMIN_TOKEN.length ||
+      !timingSafeEqual(Buffer.from(token), Buffer.from(ADMIN_TOKEN))) {
     return res.status(403).json({ error: "no autorizado" });
   }
   next();
+}
+
+// In-memory rate limiter — per-IP, sliding window. No external dependencies.
+const _rateLimiters = new Map();
+function makeRateLimit(max, windowMs) {
+  return (req, res, next) => {
+    const key = `${req.ip}:${req.path}`;
+    const now = Date.now();
+    const entry = _rateLimiters.get(key) ?? { count: 0, reset: now + windowMs };
+    if (now > entry.reset) { entry.count = 0; entry.reset = now + windowMs; }
+    entry.count++;
+    _rateLimiters.set(key, entry);
+    if (entry.count > max) return res.status(429).json({ error: "demasiadas solicitudes" });
+    next();
+  };
+}
+
+// 5-minute in-memory cache for expensive catalog queries.
+const _cache = new Map();
+function cached(key, ttlMs, fn) {
+  const entry = _cache.get(key);
+  if (entry && Date.now() < entry.exp) return Promise.resolve(entry.val);
+  return fn().then(val => { _cache.set(key, { val, exp: Date.now() + ttlMs }); return val; });
 }
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -126,6 +152,56 @@ app.get("/robots.txt", (req, res) => {
   res.set("Content-Type", "text/plain").send(`User-agent: *\nAllow: /\n\nSitemap: ${baseUrlOf(req)}/sitemap.xml\n`);
 });
 
+app.get("/privacidad", (_req, res) => {
+  res.set("Content-Type", "text/html; charset=utf-8").send(`<!DOCTYPE html>
+<html lang="es-AR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Política de Privacidad | Bajó el Precio</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 36 36'><rect width='36' height='36' rx='9' fill='%23e64c1e'/><polyline points='7,11 14,17 21,13 28,24' fill='none' stroke='%23fff' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/></svg>">
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:system-ui,sans-serif;background:#f9fafb;color:#111827;line-height:1.6;padding:40px 20px}
+    .wrap{max-width:680px;margin:0 auto;background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:40px}
+    h1{font-size:clamp(22px,4vw,32px);font-weight:800;margin-bottom:8px}
+    .updated{font-size:13px;color:#6b7280;margin-bottom:32px}
+    h2{font-size:17px;font-weight:700;margin:28px 0 8px}
+    p{font-size:15px;color:#374151;margin-bottom:12px}
+    a{color:#e64c1e}
+    .back{display:inline-block;margin-top:32px;font-size:14px;color:#6b7280}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Política de Privacidad</h1>
+  <p class="updated">Última actualización: julio 2026</p>
+
+  <h2>¿Qué datos recopilamos?</h2>
+  <p>Cuando creás una alerta de precio a través de nuestro bot de Telegram, guardamos tu <strong>chat ID de Telegram</strong> (un número público que Telegram asigna a cada cuenta). Este ID es el único identificador que usamos para enviarte notificaciones.</p>
+  <p>También registramos los <strong>IDs de productos de MercadoLibre</strong> que rastreás y los precios históricos observados.</p>
+  <p>No recopilamos nombre, email, teléfono, ni ningún otro dato personal.</p>
+
+  <h2>¿Para qué usamos estos datos?</h2>
+  <p>Exclusivamente para enviarte notificaciones de Telegram cuando el precio de un producto que rastreás baja del umbral que configuraste.</p>
+
+  <h2>¿Compartimos tus datos?</h2>
+  <p>No. Los datos no se venden ni comparten con terceros. Son usados únicamente por este servicio para funcionar.</p>
+
+  <h2>¿Cuánto tiempo los guardamos?</h2>
+  <p>Mientras tengas alertas activas. Al borrar todas tus alertas, tu chat ID deja de estar asociado a ningún producto activo.</p>
+
+  <h2>¿Cómo podés borrar tus datos?</h2>
+  <p>Escribile <code>/borrar</code> al bot <a href="https://t.me/bajoelprecio_bot">@bajoelprecio_bot</a> para eliminar todas tus alertas. Alternativamente, podés contactarnos vía Telegram.</p>
+
+  <h2>Cookies</h2>
+  <p>No usamos cookies de seguimiento ni publicidad. Guardamos preferencias de tema (oscuro/claro) en <code>localStorage</code> de tu navegador, que no sale de tu dispositivo.</p>
+
+  <a class="back" href="/">← Volver al inicio</a>
+</div>
+</body></html>`);
+});
+
 // Referral redirect: /ref/:chatId → Telegram deep link
 app.get("/ref/:code", (req, res) => {
   const code = req.params.code.replace(/\D/g, "");
@@ -165,11 +241,12 @@ async function fetchDeals({ category } = {}) {
   return deals.slice(0, 50);
 }
 
-app.get("/api/deals", async (req, res) => {
+app.get("/api/deals", makeRateLimit(60, 60_000), async (req, res) => {
   try {
     const category = req.query.category || null;
     const take = Math.min(50, Math.max(1, parseInt(req.query.take) || 50));
-    const deals = await fetchDeals({ category });
+    const deals = await cached(`deals:${category ?? "all"}`, 5 * 60_000, () => fetchDeals({ category }));
+    res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
     res.json(deals.slice(0, take).map((d) => ({ id: d.id, title: d.title, image: d.image, price: d.current, min: d.min, avg: d.avg, savingPct: d.savingPct, url: d.url, category: d.category })));
   } catch (e) {
     console.error("deals error:", e.message);
@@ -660,7 +737,7 @@ app.get("/premium/gracias", (_req, res) => {
 
 // Trackear un producto — intenta la API primero (fast-path), Playwright si falla.
 // Timeout de Express es 30s, así que hacemos todo lo posible en ese tiempo.
-app.post("/api/track", async (req, res) => {
+app.post("/api/track", makeRateLimit(10, 60_000), async (req, res) => {
   const input = req.body?.url ?? req.query.url;
   if (!input) return res.status(400).json({ error: "falta 'url'" });
   try {
@@ -703,7 +780,7 @@ app.post("/api/observe", async (req, res) => {
 });
 
 // Alertas: el bot de Telegram registra/lista/borra suscripciones de baja de precio.
-app.post("/api/alerts", async (req, res) => {
+app.post("/api/alerts", makeRateLimit(30, 60_000), async (req, res) => {
   try {
     res.json(await subscribeAlert(req.body ?? {}));
   } catch (e) {
@@ -724,7 +801,7 @@ app.delete("/api/alerts", async (req, res) => {
 
 // Telegram linking: genera un código de 6 dígitos válido 5 min.
 // El modal web lo muestra; el usuario lo manda al bot para vincular su chatId.
-app.post("/api/link-code", async (req, res) => {
+app.post("/api/link-code", makeRateLimit(10, 60_000), async (req, res) => {
   try {
     const code = String(Math.floor(100000 + Math.random() * 900000));
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
@@ -1033,36 +1110,40 @@ app.get("/api/compare/:id", async (req, res) => {
 });
 
 // Catálogo: productos (ya scrapeados) agrupados por categoría, con su precio actual. Para el home.
-app.get("/api/catalog", async (_req, res) => {
-  const products = await prisma.product.findMany({
-    where: { prices: { some: {} }, image: { not: null }, title: { not: "(por scrapear)" } },
-    select: {
-      id: true,
-      title: true,
-      url: true,
-      image: true,
-      category: true,
-      queries: true,
-      prices: { orderBy: { seenAt: "asc" }, select: { price: true } },
-    },
-    orderBy: { queries: "desc" },
-  });
-  const byCat = {};
-  for (const p of products) {
-    const prices = p.prices.map((x) => x.price);
-    const cat = p.category || "Otros";
-    (byCat[cat] ??= []).push({
-      id: p.id,
-      title: p.title,
-      url: affiliateUrl(p.url),
-      image: p.image,
-      queries: p.queries,
-      price: prices.at(-1) ?? null,
-      min: prices.length ? Math.min(...prices) : null,
-      max: prices.length ? Math.max(...prices) : null,
-      spark: prices.slice(-24),
+app.get("/api/catalog", makeRateLimit(30, 60_000), async (_req, res) => {
+  const byCat = await cached("catalog:all", 5 * 60_000, async () => {
+    const products = await prisma.product.findMany({
+      where: { prices: { some: {} }, image: { not: null }, title: { not: "(por scrapear)" } },
+      select: {
+        id: true,
+        title: true,
+        url: true,
+        image: true,
+        category: true,
+        queries: true,
+        prices: { orderBy: { seenAt: "desc" }, take: 24, select: { price: true } },
+      },
+      orderBy: { queries: "desc" },
     });
-  }
+    const result = {};
+    for (const p of products) {
+      const prices = p.prices.map((x) => x.price).reverse();
+      const cat = p.category || "Otros";
+      (result[cat] ??= []).push({
+        id: p.id,
+        title: p.title,
+        url: affiliateUrl(p.url),
+        image: p.image,
+        queries: p.queries,
+        price: prices.at(-1) ?? null,
+        min: prices.length ? Math.min(...prices) : null,
+        max: prices.length ? Math.max(...prices) : null,
+        spark: prices,
+      });
+    }
+    return result;
+  });
+  res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
   res.json(byCat);
 });
 
@@ -1091,6 +1172,7 @@ app.get("/api/trending", async (_req, res) => {
     orderBy: [{ alerts: { _count: "desc" } }, { queries: "desc" }],
     take: 20,
   });
+  res.set("Cache-Control", "public, max-age=120, stale-while-revalidate=600");
   res.json(
     products.map((p) => ({
       id: p.id,
