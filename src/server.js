@@ -32,6 +32,11 @@ function requireAdmin(req, res, next) {
 
 // In-memory rate limiter — per-IP, sliding window. No external dependencies.
 const _rateLimiters = new Map();
+// Prune expired entries every 10 min to prevent unbounded growth.
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of _rateLimiters) if (now > v.reset) _rateLimiters.delete(k);
+}, 10 * 60_000).unref();
 function makeRateLimit(max, windowMs) {
   return (req, res, next) => {
     const key = `${req.ip}:${req.path}`;
@@ -799,6 +804,25 @@ app.delete("/api/alerts", async (req, res) => {
   }
 });
 
+// Email alert: captura email de usuarios sin Telegram para notificarlos cuando baje el precio.
+app.post("/api/email-alert", makeRateLimit(5, 60_000), async (req, res) => {
+  const { email, productId, targetPrice } = req.body ?? {};
+  if (!email || !productId) return res.status(400).json({ error: "falta email o productId" });
+  const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRe.test(email)) return res.status(400).json({ error: "email inválido" });
+  try {
+    await prisma.emailAlert.upsert({
+      where: { email_productId: { email: email.toLowerCase(), productId } },
+      update: { targetPrice: targetPrice ? Number(targetPrice) : null },
+      create: { email: email.toLowerCase(), productId, targetPrice: targetPrice ? Number(targetPrice) : null },
+    });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("email-alert error:", e.message);
+    res.status(500).json({ error: "fallo" });
+  }
+});
+
 // Telegram linking: genera un código de 6 dígitos válido 5 min.
 // El modal web lo muestra; el usuario lo manda al bot para vincular su chatId.
 app.post("/api/link-code", makeRateLimit(10, 60_000), async (req, res) => {
@@ -1195,6 +1219,19 @@ app.get("/api/products", async (_req, res) => {
     take: 100,
   });
   res.json(products);
+});
+
+// Global error handler — catches anything thrown inside async route handlers (Express v5 auto-propagates).
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+  const status = err.status ?? err.statusCode ?? 500;
+  console.error(`[error] ${req.method} ${req.path} ${status}:`, err.message, err.stack?.split("\n")[1]?.trim());
+  if (res.headersSent) return;
+  res.status(status).json({ error: status >= 500 ? "error interno" : err.message });
+});
+
+process.on("unhandledRejection", (reason) => {
+  console.error("[unhandledRejection]", reason);
 });
 
 const port = Number(process.env.PORT) || 3000;

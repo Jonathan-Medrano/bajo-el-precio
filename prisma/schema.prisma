@@ -22,8 +22,9 @@ model Product {
   lastScraped DateTime     @updatedAt
   // Última vez que el tracker leyó el precio (null = nunca scrapeado por el tracker).
   lastTracked DateTime?
-  prices      PricePoint[]
-  alerts      Alert[]
+  prices       PricePoint[]
+  alerts       Alert[]
+  emailAlerts  EmailAlert[]
 
   @@index([lastScraped])
   @@index([lastTracked])
@@ -90,6 +91,19 @@ model Referral {
   createdAt  DateTime @default(now())
 
   @@index([referrerId])
+}
+
+/// Email de alguien que quiere recibir notificaciones de bajada de precio (alternativa sin Telegram).
+model EmailAlert {
+  id          Int      @id @default(autoincrement())
+  email       String
+  productId   String
+  product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  targetPrice Int?     // null = avisar en cada nuevo mínimo
+  createdAt   DateTime @default(now())
+
+  @@unique([email, productId])
+  @@index([productId])
 }
 
 /// Un precio observado de un producto en un momento dado (la serie temporal = el gráfico).

@@ -167,6 +167,14 @@
     .btn-primary   { background: var(--brand); color: #fff; flex: 1; justify-content: center; }
     .btn-secondary { background: var(--bg); color: var(--text); border: 1px solid var(--border); flex: 1; justify-content: center; }
     .btn-tg        { background: #229ed9; color: #fff; flex: 1; justify-content: center; }
+    .email-alt { padding: 0 24px 20px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .email-alt-label { font-size: 13px; color: var(--text-soft); white-space: nowrap; }
+    .email-alt-form { display: flex; gap: 6px; flex: 1; min-width: 220px; }
+    .email-alt-input { flex: 1; padding: 9px 12px; border: 1.5px solid var(--border); border-radius: 8px; font-size: 13px; font-family: inherit; outline: none; transition: border-color .12s; background: var(--surface); color: var(--text); }
+    .email-alt-input:focus { border-color: var(--brand); }
+    .email-alt-submit { padding: 9px 16px; background: var(--surface); border: 1.5px solid var(--border); border-radius: 8px; font-size: 13px; font-weight: 600; font-family: inherit; cursor: pointer; color: var(--text); transition: border-color .12s, color .12s; white-space: nowrap; }
+    .email-alt-submit:hover { border-color: var(--brand); color: var(--brand); }
+    .email-alt-status { font-size: 12px; color: var(--text-soft); width: 100%; }
 
     /* ──────────── SECTION SHARED ──────────── */
     .section-head { margin-bottom: 32px; }
@@ -453,6 +461,14 @@
           Alertarme cuando baje
         </button>
       </div>
+      <div class="email-alt" id="email-alt" style="display:none">
+        <span class="email-alt-label">o por email:</span>
+        <div class="email-alt-form">
+          <input type="email" id="email-alt-input" class="email-alt-input" placeholder="tu@email.com" autocomplete="email" />
+          <button id="email-alt-btn" class="email-alt-submit">Avisarme</button>
+        </div>
+        <div id="email-alt-status" class="email-alt-status"></div>
+      </div>
     </div>
   </div>
 </section>
@@ -726,6 +742,9 @@
     v.textContent = txt;
 
     $('result-ml-link').href = product.url || product.rawUrl || '#';
+    $('email-alt').style.display = '';
+    $('email-alt-status').textContent = '';
+    $('email-alt-input').value = '';
     const acts = document.querySelector('.result-actions');
     if (!document.getElementById('seo-page-btn')) {
       const a = document.createElement('a');
@@ -882,6 +901,21 @@
   // ── Keyboard ──
   $('search-btn').addEventListener('click', search);
   $('url-input').addEventListener('keydown', e => e.key === 'Enter' && search());
+
+  // ── Email alert ──
+  $('email-alt-btn').addEventListener('click', async () => {
+    const email = $('email-alt-input').value.trim();
+    const status = $('email-alt-status');
+    if (!email) { status.textContent = 'Ingresá tu email.'; return; }
+    $('email-alt-btn').disabled = true;
+    status.textContent = 'Guardando...';
+    try {
+      const d = await fetch('/api/email-alert', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, productId: currentProductId }) }).then(r => r.json());
+      status.textContent = d.ok ? '✅ ¡Listo! Te avisamos cuando baje.' : 'Error al guardar. Intentá de nuevo.';
+    } catch { status.textContent = 'Error de conexión.'; }
+    finally  { $('email-alt-btn').disabled = false; }
+  });
+  $('email-alt-input').addEventListener('keydown', e => e.key === 'Enter' && $('email-alt-btn').click());
 
   // ── Onboarding toast ──
   let _toastShown = false;
