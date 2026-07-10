@@ -11,12 +11,14 @@
  */
 
 import { prisma } from "./db.js";
+import { searchProducts } from "./ml/api-client.js";
+import { mapMlCategory } from "./ml/categories.js";
 import { pathToFileURL } from "node:url";
 
 const DRY_RUN = process.argv.includes("--dry-run");
 
-// 60+ curated queries across all major ML Argentina categories.
-// Mix of categories, brands, subcategories, and price-range terms.
+// 120+ curated queries across major ML Argentina categories.
+// Covers tech, lifestyle, fashion, beauty, home, and sports — the highest-volume segments.
 const SEARCH_QUERIES = [
   // Celulares y telefonía
   { category: "Celulares", q: "celular samsung galaxy" },
@@ -36,6 +38,11 @@ const SEARCH_QUERIES = [
   { category: "Computación", q: "monitor led 24 pulgadas" },
   { category: "Computación", q: "disco ssd 1tb" },
   { category: "Computación", q: "ram ddr4 16gb" },
+  { category: "Computación", q: "teclado mecanico inalambrico oficina" },
+  { category: "Computación", q: "webcam full hd 1080p streaming" },
+  { category: "Computación", q: "disco rigido externo 2tb 4tb" },
+  { category: "Computación", q: "hub usb tipo c multipuertos" },
+  { category: "Computación", q: "tarjeta de video rtx 4060 rx 7600" },
 
   // Televisores
   { category: "Televisores", q: "smart tv samsung 55 4k" },
@@ -58,6 +65,11 @@ const SEARCH_QUERIES = [
   { category: "Gaming", q: "joystick dualsense ps5" },
   { category: "Gaming", q: "silla gamer ergonomica" },
   { category: "Gaming", q: "monitor gamer 144hz" },
+  { category: "Gaming", q: "juego ps5 xbox serie x fisico" },
+  { category: "Gaming", q: "auricular gaming headset 7.1" },
+  { category: "Gaming", q: "teclado mecanico gaming rgb" },
+  { category: "Gaming", q: "mouse gamer logitech razer" },
+  { category: "Gaming", q: "capture card capturadora hdmi" },
 
   // Tablets
   { category: "Tablets", q: "tablet samsung galaxy tab" },
@@ -101,6 +113,11 @@ const SEARCH_QUERIES = [
   // Deportes
   { category: "Deportes", q: "bicicleta rodado 29" },
   { category: "Deportes", q: "cinta de correr electrica" },
+  { category: "Deportes", q: "bicicleta electrica plegable" },
+  { category: "Deportes", q: "mancuernas pesas ajustables" },
+  { category: "Deportes", q: "raqueta padel adidas head" },
+  { category: "Deportes", q: "pelota futbol nike adidas" },
+  { category: "Deportes", q: "colchoneta yoga pilates" },
 
   // Impresión 3D
   { category: "Impresión 3D", q: "filamento pla 1.75mm" },
@@ -110,6 +127,86 @@ const SEARCH_QUERIES = [
   { category: "Streaming", q: "chromecast google tv" },
   { category: "Streaming", q: "amazon fire tv stick" },
   { category: "Streaming", q: "roku streaming" },
+
+  // Zapatillas y calzado deportivo
+  { category: "Zapatillas", q: "zapatillas nike running hombre" },
+  { category: "Zapatillas", q: "zapatillas adidas mujer" },
+  { category: "Zapatillas", q: "zapatillas new balance 574" },
+  { category: "Zapatillas", q: "zapatillas puma fila hombre" },
+  { category: "Zapatillas", q: "zapatillas converse all star" },
+  { category: "Zapatillas", q: "zapatillas basquet jordan nike" },
+  { category: "Zapatillas", q: "zapatillas trail running" },
+
+  // Indumentaria deportiva
+  { category: "Indumentaria", q: "ropa deportiva conjunto gym mujer" },
+  { category: "Indumentaria", q: "buzo canguro adidas nike hoodie" },
+  { category: "Indumentaria", q: "short deportivo dry fit hombre" },
+
+  // Perfumes y fragancias
+  { category: "Perfumes", q: "perfume carolina herrera 212" },
+  { category: "Perfumes", q: "perfume paco rabanne one million" },
+  { category: "Perfumes", q: "perfume armani versace hombre" },
+  { category: "Perfumes", q: "perfume mujer chanel dior" },
+  { category: "Perfumes", q: "colonia masiva importada" },
+
+  // Belleza y cosméticos
+  { category: "Belleza", q: "maquillaje maybelline loreal base" },
+  { category: "Belleza", q: "secador de pelo profesional" },
+  { category: "Belleza", q: "plancha de pelo ghd babyliss" },
+  { category: "Belleza", q: "kit cuidado de la piel crema serum" },
+  { category: "Belleza", q: "depiladora electrica mujer" },
+
+  // Suplementos deportivos
+  { category: "Suplementos", q: "whey protein 1kg 3kg" },
+  { category: "Suplementos", q: "creatina monohidrato 500g" },
+  { category: "Suplementos", q: "pre workout xtend bcaa" },
+  { category: "Suplementos", q: "vitamina c zinc omega 3" },
+  { category: "Suplementos", q: "proteina vegana colageno" },
+
+  // Colchones y descanso
+  { category: "Colchones", q: "colchon resortes dos plazas" },
+  { category: "Colchones", q: "colchon memory foam serta" },
+  { category: "Colchones", q: "sommier y colchon 140x190" },
+  { category: "Colchones", q: "almohada cervical visco" },
+
+  // Muebles y escritorios
+  { category: "Muebles", q: "escritorio esquinero oficina casa" },
+  { category: "Muebles", q: "silla ergonomica oficina lumbar" },
+  { category: "Muebles", q: "cajonera organizador madera melamina" },
+  { category: "Muebles", q: "estanteria biblioteca modular" },
+
+  // Cámaras de seguridad
+  { category: "Seguridad", q: "camara ip wifi interior exterior" },
+  { category: "Seguridad", q: "kit cctv 4 camaras grabador dvr" },
+  { category: "Seguridad", q: "alarma wifi inalambrica casa" },
+  { category: "Seguridad", q: "timbre con camara video doorbell" },
+
+  // Smart home y domótica
+  { category: "Smart Home", q: "alexa echo dot amazon" },
+  { category: "Smart Home", q: "google home nest mini" },
+  { category: "Smart Home", q: "lamparas led inteligentes smart wifi" },
+  { category: "Smart Home", q: "enchufe smart wifi inteligente" },
+
+  // Energía y UPS
+  { category: "Energía", q: "ups estabilizador de tension 1000va" },
+  { category: "Energía", q: "generador electrico grupo electrogeno" },
+  { category: "Energía", q: "panel solar kit hogar" },
+
+  // Impresoras
+  { category: "Impresoras", q: "impresora multifuncion hp epson" },
+  { category: "Impresoras", q: "impresora laser monocromatica" },
+  { category: "Impresoras", q: "tinta cartucho hp epson original" },
+
+  // Redes y networking
+  { category: "Redes", q: "router wifi 6 mesh ax" },
+  { category: "Redes", q: "repetidor wifi tp-link extensor" },
+  { category: "Redes", q: "switch ethernet 8 puertos gigabit" },
+
+  // Bebés y niños
+  { category: "Bebés", q: "cochecito bebe travel system" },
+  { category: "Bebés", q: "silla de auto bebe isofix" },
+  { category: "Bebés", q: "cuna para bebe colecho" },
+  { category: "Bebés", q: "juguete educativo lego playmobil" },
 ];
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -125,14 +222,11 @@ async function runSearchSeed({ resultsPerQuery = 50, delayMs = 300 } = {}) {
 
   for (const { category, q } of SEARCH_QUERIES) {
     try {
-      const url = `https://api.mercadolibre.com/sites/MLA/search?q=${encodeURIComponent(q)}&limit=${resultsPerQuery}&fields=results.id,results.title,results.price,results.thumbnail,results.permalink,results.catalog_product_id`;
-      const res = await fetch(url);
-      if (!res.ok) {
-        console.warn(`  [${category}] HTTP ${res.status} para "${q}"`);
-        await sleep(delayMs * 3);
-        continue;
-      }
-      const data = await res.json();
+      const data = await searchProducts(q, resultsPerQuery).catch(e => {
+        console.warn(`  [${category}] error en "${q}": ${e.message}`);
+        return null;
+      });
+      if (!data) { await sleep(delayMs * 3); continue; }
       const items = data?.results ?? [];
 
       let newCount = 0, updCount = 0;
@@ -147,6 +241,9 @@ async function runSearchSeed({ resultsPerQuery = 50, delayMs = 300 } = {}) {
           continue;
         }
 
+        const thumb = item.secure_thumbnail || item.thumbnail || null;
+        const resolvedCategory = mapMlCategory(item.category_id, category);
+
         // Upsert product — update metadata if exists, create if new
         const existing = await prisma.product.findUnique({ where: { id: rawId } });
         if (!existing) {
@@ -155,28 +252,36 @@ async function runSearchSeed({ resultsPerQuery = 50, delayMs = 300 } = {}) {
               id: rawId,
               title: item.title ?? "Producto",
               url: item.permalink ?? null,
-              image: item.thumbnail ?? null,
-              category,
+              image: thumb,
+              category: resolvedCategory,
               lastTracked: new Date(),
             },
           });
           newCount++;
         } else {
-          // Update stale metadata (title/image can change over time)
           await prisma.product.update({
             where: { id: rawId },
             data: {
               ...(item.title && { title: item.title }),
-              ...(item.thumbnail && { image: item.thumbnail }),
+              ...(thumb && !existing.image && { image: thumb }),
               ...(item.permalink && { url: item.permalink }),
+              // Update category only when we have a ML-native one (overrides query-derived)
+              ...(item.category_id && { category: resolvedCategory }),
               lastTracked: new Date(),
             },
           });
           updCount++;
         }
 
-        // Always save current price as a new datapoint
-        await prisma.pricePoint.create({ data: { productId: rawId, price } });
+        // Only save a new price point if the price changed since the last recording
+        const lastPoint = await prisma.pricePoint.findFirst({
+          where: { productId: rawId },
+          orderBy: { seenAt: "desc" },
+          select: { price: true },
+        });
+        if (!lastPoint || lastPoint.price !== price) {
+          await prisma.pricePoint.create({ data: { productId: rawId, price } });
+        }
       }
 
       totalNew += newCount;
@@ -225,18 +330,24 @@ export async function refreshUncoveredProducts({ limit = 150, delayMs = 250 } = 
   for (const product of products) {
     try {
       const q = product.title.slice(0, 55).trim();
-      const url = `https://api.mercadolibre.com/sites/MLA/search?q=${encodeURIComponent(q)}&limit=20&fields=results.id,results.price,results.thumbnail,results.permalink`;
-      const res = await fetch(url);
-      if (!res.ok) { await sleep(delayMs * 3); continue; }
-      const data = await res.json();
+      const data = await searchProducts(q, 20).catch(() => null);
+      if (!data) { await sleep(delayMs * 3); continue; }
       const match = data?.results?.find(r => r.id === product.id);
       if (match?.price) {
-        await prisma.pricePoint.create({ data: { productId: product.id, price: Math.round(match.price) } });
+        const newPrice = Math.round(match.price);
+        const lastPoint = await prisma.pricePoint.findFirst({
+          where: { productId: product.id },
+          orderBy: { seenAt: "desc" },
+          select: { price: true },
+        });
+        if (!lastPoint || lastPoint.price !== newPrice) {
+          await prisma.pricePoint.create({ data: { productId: product.id, price: newPrice } });
+        }
         await prisma.product.update({
           where: { id: product.id },
           data: {
             lastTracked: new Date(),
-            ...(match.thumbnail && { image: match.thumbnail }),
+            ...((match.secure_thumbnail || match.thumbnail) && { image: match.secure_thumbnail || match.thumbnail }),
             ...(match.permalink && { url: match.permalink }),
           },
         });
