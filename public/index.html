@@ -178,6 +178,19 @@
     .deals-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 32px; flex-wrap: wrap; }
     .deals-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }
 
+    /* Skeleton loading */
+    @keyframes shimmer { 0%{background-position:-500px 0} 100%{background-position:500px 0} }
+    .deal-skel { pointer-events:none; cursor:default; }
+    .skel-box,.skel-line {
+      background:linear-gradient(90deg,var(--border) 25%,var(--bg) 50%,var(--border) 75%);
+      background-size:500px 100%; animation:shimmer 1.5s ease-in-out infinite; border-radius:6px;
+    }
+    .skel-box { aspect-ratio:1; width:100%; border-radius:0; }
+    [data-theme="dark"] .skel-box,[data-theme="dark"] .skel-line {
+      background:linear-gradient(90deg,var(--border) 25%,#1e293b 50%,var(--border) 75%);
+      background-size:500px 100%; animation:shimmer 1.5s ease-in-out infinite;
+    }
+
     .deal-card {
       background: var(--surface); border: 1px solid var(--border);
       border-radius: var(--radius-lg); overflow: hidden; cursor: pointer;
@@ -720,11 +733,25 @@
 
   // ── Deals spotlight ──
   async function loadDeals() {
+    const grid = $('deals-grid');
+    // Show skeletons immediately for perceived performance
+    grid.innerHTML = Array(8).fill(0).map(() =>
+      '<div class="deal-card deal-skel">'
+      + '<div class="deal-img-wrap skel-box"></div>'
+      + '<div class="deal-body" style="gap:8px">'
+      + '<div class="skel-line" style="width:85%;height:13px"></div>'
+      + '<div class="skel-line" style="width:55%;height:21px"></div>'
+      + '<div class="skel-line" style="width:40%;height:11px;margin-top:4px"></div>'
+      + '</div></div>'
+    ).join('');
+    $('deals-section').style.display = '';
+
     try {
-      const deals = await fetch('/api/deals').then(r => r.json());
-      if (!deals.length) return;
-      const top = deals.slice(0, 8);
-      $('deals-grid').innerHTML = top.map(d => `
+      const deals = await fetch('/api/deals?take=8').then(r => r.json());
+      const list = Array.isArray(deals) ? deals : (deals.deals || []);
+      if (!list.length) { $('deals-section').style.display = 'none'; return; }
+
+      grid.innerHTML = list.map(d => `
         <div class="deal-card" data-id="${esc(d.id)}" tabindex="0" role="button" aria-label="${esc(d.title)}">
           <div class="deal-img-wrap">
             ${d.image ? `<img src="${esc(d.image)}" loading="lazy" alt="">` : '<div class="deal-img-ph"></div>'}
@@ -738,12 +765,11 @@
           </div>
         </div>`).join('');
 
-      $('deals-grid').querySelectorAll('.deal-card').forEach(el => {
+      grid.querySelectorAll('.deal-card').forEach(el => {
         el.addEventListener('click', () => loadProduct(el.dataset.id));
         el.addEventListener('keydown', e => e.key === 'Enter' && loadProduct(el.dataset.id));
       });
-      $('deals-section').style.display = '';
-    } catch {}
+    } catch { $('deals-section').style.display = 'none'; }
   }
 
   // ── Trending ──

@@ -166,8 +166,9 @@ async function fetchDeals({ category } = {}) {
 app.get("/api/deals", async (req, res) => {
   try {
     const category = req.query.category || null;
+    const take = Math.min(50, Math.max(1, parseInt(req.query.take) || 50));
     const deals = await fetchDeals({ category });
-    res.json(deals.map((d) => ({ id: d.id, title: d.title, image: d.image, price: d.current, min: d.min, avg: d.avg, savingPct: d.savingPct, url: d.url, category: d.category })));
+    res.json(deals.slice(0, take).map((d) => ({ id: d.id, title: d.title, image: d.image, price: d.current, min: d.min, avg: d.avg, savingPct: d.savingPct, url: d.url, category: d.category })));
   } catch (e) {
     console.error("deals error:", e.message);
     res.status(500).json({ error: "fallo" });
@@ -182,8 +183,8 @@ app.get("/deals", async (req, res) => {
     const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
     const ogImage = deals[0] ? `${baseUrl}/og/${deals[0].id}.png` : "";
 
-    const cards = deals.length
-      ? deals.map((d) => `
+    const PAGE_SIZE = 24;
+    const makeCard = (d) => `
         <a class="deal-card" href="/p/${esc(d.id)}">
           <div class="deal-img-wrap">
             ${d.image ? `<img src="${esc(d.image)}" alt="${esc(d.title)}" loading="lazy">` : `<div class="deal-img-ph"></div>`}
@@ -195,11 +196,18 @@ app.get("/deals", async (req, res) => {
             <div class="deal-was">Promedio: <span>${fmt(d.avg)}</span></div>
             <div class="deal-cta">Ver historial →</div>
           </div>
-        </a>`).join("")
+        </a>`;
+    const firstBatch = deals.slice(0, PAGE_SIZE);
+    const moreBatch = deals.slice(PAGE_SIZE);
+    const cards = firstBatch.length
+      ? firstBatch.map(makeCard).join("")
       : `<div class="deals-empty">
           <p>Por ahora no hay productos en precio mínimo verificado.</p>
           <p>El tracker actualiza continuamente — volvé en unas horas.</p>
         </div>`;
+    const moreJson = moreBatch.length
+      ? JSON.stringify(moreBatch.map(d => ({ id: d.id, title: d.title, image: d.image || "", price: d.current, avg: d.avg, savingPct: d.savingPct }))).replace(/<\//g, "<\\/")
+      : null;
 
     // Extract unique categories for filter pills
     const cats = [...new Set(deals.map(d => d.category).filter(Boolean))].sort();
@@ -261,6 +269,10 @@ app.get("/deals", async (req, res) => {
     .deal-cta{margin-top:auto;padding-top:10px;font-size:12.5px;font-weight:600;color:var(--brand)}
     .deals-empty{grid-column:1/-1;text-align:center;padding:80px 20px;color:var(--text-soft)}
     .deals-empty p{font-size:16px;margin-bottom:8px}
+    .load-more-wrap{text-align:center;padding:32px 0 56px}
+    .load-more-btn{background:var(--surface);border:2px solid var(--border);color:var(--text);font-size:14px;font-weight:600;padding:12px 32px;border-radius:999px;cursor:pointer;transition:border-color 80ms,color 80ms,background 80ms;font-family:inherit}
+    .load-more-btn:hover{border-color:var(--brand);color:var(--brand);background:var(--brand-bg)}
+    .load-more-btn:disabled{opacity:.5;cursor:default;pointer-events:none}
     footer{padding:40px 0;border-top:1px solid var(--border);background:var(--surface)}
     .footer-inner{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
     .footer-logo{font-size:15px;font-weight:800;color:var(--text);display:flex;align-items:center;gap:8px;letter-spacing:-.01em}
@@ -306,9 +318,39 @@ ${buildNav({ active: "deals" })}
 
 <main class="deals-body">
   <div class="container">
-    <div class="deals-grid">
+    <div class="deals-grid" id="deals-grid">
       ${cards}
     </div>
+    ${moreJson ? `
+    <script type="application/json" id="__more">${moreJson}</script>
+    <div class="load-more-wrap" id="__lm_wrap">
+      <button class="load-more-btn" id="__lm_btn">Cargar ${moreBatch.length} productos más</button>
+    </div>
+    <script>
+    (function(){
+      var btn=document.getElementById('__lm_btn'),grid=document.getElementById('deals-grid');
+      btn.onclick=function(){
+        btn.disabled=true;btn.textContent='Cargando…';
+        var data=JSON.parse(document.getElementById('__more').textContent);
+        function e(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+        function f(n){return '$'+Math.round(n).toLocaleString('es-AR');}
+        grid.insertAdjacentHTML('beforeend',data.map(function(d){return(
+          '<a class="deal-card" href="/p/'+e(d.id)+'">'
+          +'<div class="deal-img-wrap">'
+          +(d.image?'<img src="'+e(d.image)+'" alt="'+e(d.title)+'" loading="lazy">':'<div class="deal-img-ph"></div>')
+          +'<div class="saving-badge">−'+d.savingPct+'% vs prom.</div>'
+          +'</div><div class="deal-body">'
+          +'<div class="deal-title">'+e(d.title)+'</div>'
+          +'<div class="deal-price">'+f(d.price)+'</div>'
+          +'<div class="deal-was">Promedio: <span>'+f(d.avg)+'</span></div>'
+          +'<div class="deal-cta">Ver historial →</div>'
+          +'</div></a>'
+        );}).join(''));
+        document.getElementById('__lm_wrap').remove();
+        document.getElementById('__more').remove();
+      };
+    })();
+    </script>` : ""}
   </div>
 </main>
 
@@ -354,8 +396,8 @@ app.get("/deals/:category", async (req, res) => {
     const fmt = (n) => "$" + Math.round(n).toLocaleString("es-AR");
     const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
-    const cards = deals.length
-      ? deals.map((d) => `
+    const CAT_PAGE_SIZE = 24;
+    const makeCatCard = (d) => `
         <a class="deal-card" href="/p/${esc(d.id)}">
           <div class="deal-img-wrap">
             ${d.image ? `<img src="${esc(d.image)}" alt="${esc(d.title)}" loading="lazy">` : `<div class="deal-img-ph"></div>`}
@@ -369,11 +411,18 @@ app.get("/deals/:category", async (req, res) => {
             <div class="deal-badge">−${d.savingPct}% vs promedio</div>
             <div class="deal-cta">Ver historial →</div>
           </div>
-        </a>`).join("")
+        </a>`;
+    const catFirst = deals.slice(0, CAT_PAGE_SIZE);
+    const catMore = deals.slice(CAT_PAGE_SIZE);
+    const cards = catFirst.length
+      ? catFirst.map(makeCatCard).join("")
       : `<div class="deals-empty">
           <p>No hay ofertas verificadas en ${esc(catLabel)} por ahora.</p>
           <p>El tracker actualiza continuamente — volvé en unas horas.</p>
         </div>`;
+    const catMoreJson = catMore.length
+      ? JSON.stringify(catMore.map(d => ({ id: d.id, title: d.title, image: d.image || "", price: d.current, avg: d.avg, savingPct: d.savingPct }))).replace(/<\//g, "<\\/")
+      : null;
 
     const html = `<!DOCTYPE html>
 <html lang="es-AR">
@@ -419,6 +468,10 @@ app.get("/deals/:category", async (req, res) => {
     .deal-badge{display:inline-block;background:#ecfdf5;color:#065f46;font-size:12px;font-weight:700;padding:3px 10px;border-radius:999px}
     .deal-cta{font-size:13px;color:var(--brand);font-weight:600;margin-top:auto;padding-top:8px}
     .deals-empty{grid-column:1/-1;text-align:center;padding:80px 20px;color:var(--text-soft)}
+    .load-more-wrap{text-align:center;padding:24px 0 48px}
+    .load-more-btn{background:var(--surface);border:2px solid var(--border);color:var(--text);font-size:14px;font-weight:600;padding:12px 32px;border-radius:999px;cursor:pointer;transition:border-color 80ms,color 80ms,background 80ms;font-family:inherit}
+    .load-more-btn:hover{border-color:var(--brand);color:var(--brand);background:var(--brand-bg)}
+    .load-more-btn:disabled{opacity:.5;cursor:default;pointer-events:none}
     @media(max-width:600px){
       .deals-header{padding:32px 0 20px}
       .deals-header h1{font-size:clamp(22px,6vw,36px)}
@@ -440,7 +493,36 @@ ${buildNav({ active: "deals" })}
     <h1>🔥 Ofertas en ${esc(catLabel)}</h1>
     <p>Productos de MercadoLibre en precio mínimo verificado. Historial real, sin inflados.</p>
   </div>
-  <div class="deals-grid">${cards}</div>
+  <div class="deals-grid" id="deals-grid">${cards}</div>
+  ${catMoreJson ? `
+  <script type="application/json" id="__more">${catMoreJson}</script>
+  <div class="load-more-wrap" id="__lm_wrap">
+    <button class="load-more-btn" id="__lm_btn">Cargar ${catMore.length} productos más</button>
+  </div>
+  <script>
+  (function(){
+    var btn=document.getElementById('__lm_btn'),grid=document.getElementById('deals-grid');
+    btn.onclick=function(){
+      btn.disabled=true;btn.textContent='Cargando…';
+      var data=JSON.parse(document.getElementById('__more').textContent);
+      function e(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+      function f(n){return '$'+Math.round(n).toLocaleString('es-AR');}
+      grid.insertAdjacentHTML('beforeend',data.map(function(d){return(
+        '<a class="deal-card" href="/p/'+e(d.id)+'">'
+        +'<div class="deal-img-wrap">'
+        +(d.image?'<img src="'+e(d.image)+'" alt="'+e(d.title)+'" loading="lazy">':'<div class="deal-img-ph"></div>')
+        +'</div><div class="deal-body">'
+        +'<div class="deal-title">'+e(d.title)+'</div>'
+        +'<div class="deal-prices"><span class="deal-current">'+f(d.price)+'</span><span class="deal-avg">'+f(d.avg)+'</span></div>'
+        +'<div class="deal-badge">−'+d.savingPct+'% vs promedio</div>'
+        +'<div class="deal-cta">Ver historial →</div>'
+        +'</div></a>'
+      );}).join(''));
+      document.getElementById('__lm_wrap').remove();
+      document.getElementById('__more').remove();
+    };
+  })();
+  </script>` : ""}
 </div></main>
 <footer style="padding:40px 0;border-top:1px solid var(--border)">
   <div class="container" style="font-size:12px;color:var(--text-soft)">
