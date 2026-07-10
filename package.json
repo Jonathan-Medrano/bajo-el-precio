@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "node --env-file=.env --watch src/server.js",
     "track": "node --env-file=.env src/tracker.js",
+    "enrich-images": "node --env-file=.env src/enrich-images.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio"
@@ -17,6 +18,7 @@
   "dependencies": {
     "@prisma/client": "^6.19.3",
     "@resvg/resvg-js": "^2.6.2",
+    "compression": "^1.8.1",
     "embedded-postgres": "^18.4.0-beta.17",
     "express": "^5.2.1",
     "p-queue": "^9.3.1",

@@ -26,6 +26,9 @@ model Product {
   alerts      Alert[]
 
   @@index([lastScraped])
+  @@index([lastTracked])
+  @@index([category])
+  @@index([queries])
 }
 
 /// Un usuario del bot (identificado por su chat de Telegram) y su plan.

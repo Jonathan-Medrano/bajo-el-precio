@@ -1,3 +1,4 @@
+import compression from "compression";
 import express from "express";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,6 +9,8 @@ import { affiliateUrl } from "./affiliate.js";
 import { getPlan, grantPremium } from "./plans.js";
 import { createApiKey, apiKeyMiddleware } from "./apikeys.js";
 import { renderProductPage, renderSitemap } from "./seo-page.js";
+import { NAV_CSS, buildNav } from "./nav.js";
+import { THEME_CSS, THEME_HEAD_SCRIPT } from "./theme.js";
 import { mpWebhookHandler } from "./mercadopago.js";
 import { telegramWebhookHandler } from "./bot.js";
 import { renderOgImage } from "./og-image.js";
@@ -27,6 +30,7 @@ function requireAdmin(req, res, next) {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const app = express();
+app.use(compression());
 // Preservar rawBody para verificación de firma HMAC (MercadoPago webhook)
 app.use(express.json({
   verify: (req, _res, buf) => { req.rawBody = buf.toString(); }
@@ -41,7 +45,7 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.static(join(__dirname, "..", "public"))); // frontend vanilla (legacy)
+app.use(express.static(join(__dirname, "..", "public"), { maxAge: "1d", etag: true }));
 
 app.get("/api/health", (_req, res) => res.json({ ok: true, service: "keepa-ml" }));
 
@@ -93,21 +97,29 @@ app.get("/p/:id", async (req, res) => {
       prices: { some: {} },
       ...(data.product.category ? { category: data.product.category } : {}),
     },
-    select: { id: true, title: true, prices: { orderBy: { seenAt: "desc" }, take: 1, select: { price: true } } },
+    select: { id: true, title: true, image: true, prices: { orderBy: { seenAt: "desc" }, take: 1, select: { price: true } } },
     orderBy: { queries: "desc" },
     take: 8,
   });
-  const related = relatedRaw.map((r) => ({ id: r.id, title: r.title, price: r.prices[0]?.price ?? null }));
+  const related = relatedRaw.map((r) => ({ id: r.id, title: r.title, image: r.image, price: r.prices[0]?.price ?? null }));
   res.send(renderProductPage(data, { baseUrl, appUrl, related }));
 });
 
 app.get("/sitemap.xml", async (req, res) => {
-  const products = await prisma.product.findMany({
-    where: { prices: { some: {} } },
-    select: { id: true, lastScraped: true },
-    orderBy: { lastScraped: "desc" },
-  });
-  res.set("Content-Type", "application/xml").send(renderSitemap(products, baseUrlOf(req)));
+  const [products, rawCats] = await Promise.all([
+    prisma.product.findMany({
+      where: { prices: { some: {} } },
+      select: { id: true, lastScraped: true },
+      orderBy: { lastScraped: "desc" },
+    }),
+    prisma.product.findMany({
+      where: { prices: { some: {} }, category: { not: null } },
+      select: { category: true },
+      distinct: ["category"],
+    }),
+  ]);
+  const categories = rawCats.map(r => r.category).filter(Boolean);
+  res.set("Content-Type", "application/xml").send(renderSitemap(products, baseUrlOf(req), categories));
 });
 
 app.get("/robots.txt", (req, res) => {
@@ -175,14 +187,12 @@ app.get("/deals", async (req, res) => {
         <a class="deal-card" href="/p/${esc(d.id)}">
           <div class="deal-img-wrap">
             ${d.image ? `<img src="${esc(d.image)}" alt="${esc(d.title)}" loading="lazy">` : `<div class="deal-img-ph"></div>`}
+            <div class="saving-badge">−${d.savingPct}% vs prom.</div>
           </div>
           <div class="deal-body">
             <div class="deal-title">${esc(d.title)}</div>
-            <div class="deal-prices">
-              <span class="deal-current">${fmt(d.current)}</span>
-              <span class="deal-avg">${fmt(d.avg)}</span>
-            </div>
-            <div class="deal-badge">−${d.savingPct}% vs promedio</div>
+            <div class="deal-price">${fmt(d.current)}</div>
+            <div class="deal-was">Promedio: <span>${fmt(d.avg)}</span></div>
             <div class="deal-cta">Ver historial →</div>
           </div>
         </a>`).join("")
@@ -190,6 +200,9 @@ app.get("/deals", async (req, res) => {
           <p>Por ahora no hay productos en precio mínimo verificado.</p>
           <p>El tracker actualiza continuamente — volvé en unas horas.</p>
         </div>`;
+
+    // Extract unique categories for filter pills
+    const cats = [...new Set(deals.map(d => d.category).filter(Boolean))].sort();
 
     const html = `<!DOCTYPE html>
 <html lang="es-AR">
@@ -205,85 +218,94 @@ app.get("/deals", async (req, res) => {
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 36 36'><rect width='36' height='36' rx='9' fill='%23e64c1e'/><polyline points='7,11 14,17 21,13 28,24' fill='none' stroke='%23fff' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  ${THEME_HEAD_SCRIPT}
   <style>
     :root {
-      --brand: #e64c1e; --brand-dark: #c03d18; --brand-bg: #fff3ef;
-      --text: #111827; --text-soft: #6b7280; --text-xsoft: #9ca3af;
-      --bg: #f9fafb; --surface: #ffffff; --border: #e5e7eb;
-      --radius: 12px;
-      --shadow: 0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.04);
-      --shadow-md: 0 4px 6px -1px rgba(0,0,0,.08), 0 2px 4px -1px rgba(0,0,0,.04);
+      --brand:#e64c1e; --brand-dark:#c03d18; --brand-bg:#fff3ef; --brand-light:#fde8e0;
+      --text:#111827; --text-soft:#6b7280; --text-xsoft:#9ca3af;
+      --bg:#f9fafb; --surface:#ffffff; --border:#e5e7eb;
+      --green:#16a34a; --green-bg:#dcfce7;
+      --radius:12px; --radius-lg:16px;
+      --shadow-md:0 4px 6px -1px rgba(0,0,0,.08),0 2px 4px -1px rgba(0,0,0,.04);
+      --shadow-lg:0 10px 24px rgba(0,0,0,.10),0 4px 8px rgba(0,0,0,.06);
     }
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    html { scroll-behavior: smooth; }
-    body { font-family: 'Inter', system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); line-height: 1.5; -webkit-font-smoothing: antialiased; font-variant-numeric: tabular-nums; }
-    a { color: inherit; text-decoration: none; }
-    img { max-width: 100%; display: block; }
-    .container { max-width: 1100px; margin: 0 auto; padding: 0 20px; }
-    .nav { background: var(--surface); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 100; }
-    .nav-inner { display: flex; align-items: center; justify-content: space-between; gap: 16px; height: 60px; }
-    .nav-logo { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 16px; color: var(--text); }
-    .nav-links { display: flex; align-items: center; gap: 4px; }
-    .nav-link { padding: 7px 14px; border-radius: 8px; font-size: 14px; font-weight: 500; color: var(--text-soft); transition: background 80ms, color 80ms; }
-    .nav-link:hover { background: var(--bg); color: var(--text); }
-    .nav-link.cta { background: var(--brand); color: #fff; }
-    .nav-link.cta:hover { background: var(--brand-dark); }
-    .deals-header { padding: 48px 0 32px; }
-    .deals-header h1 { font-size: clamp(24px, 4vw, 40px); font-weight: 800; letter-spacing: -.02em; margin-bottom: 10px; }
-    .deals-header p { font-size: 16px; color: var(--text-soft); max-width: 580px; line-height: 1.6; }
-    .deals-count { display: inline-block; background: var(--brand-bg); color: var(--brand); font-size: 13px; font-weight: 600; padding: 4px 12px; border-radius: 999px; margin-bottom: 16px; }
-    .deals-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; padding-bottom: 64px; }
-    .deal-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; display: flex; flex-direction: column; transition: box-shadow 120ms, transform 120ms; }
-    .deal-card:hover { box-shadow: 0 0 0 2px rgba(230,76,30,.35), 0 4px 6px -1px rgba(0,0,0,.08), 0 2px 4px -1px rgba(0,0,0,.04); transform: translateY(-2px); }
-    .deal-img-wrap { background: var(--bg); aspect-ratio: 1; display: flex; align-items: center; justify-content: center; overflow: hidden; }
-    .deal-img-wrap img { width: 100%; height: 100%; object-fit: contain; }
-    .deal-img-ph { width: 100%; aspect-ratio: 1; background: var(--bg); }
-    .deal-body { padding: 14px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
-    .deal-title { font-size: 13px; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; color: var(--text); font-weight: 500; }
-    .deal-prices { display: flex; align-items: baseline; gap: 8px; margin-top: 2px; }
-    .deal-current { font-size: 20px; font-weight: 800; color: var(--text); }
-    .deal-avg { font-size: 13px; color: var(--text-xsoft); text-decoration: line-through; }
-    .deal-badge { display: inline-block; background: #ecfdf5; color: #065f46; font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 999px; }
-    .deal-cta { font-size: 13px; color: var(--brand); font-weight: 600; margin-top: auto; padding-top: 8px; }
-    .deals-empty { grid-column: 1 / -1; text-align: center; padding: 80px 20px; color: var(--text-soft); }
-    .deals-empty p { font-size: 16px; margin-bottom: 8px; }
-    footer { padding: 40px 0; border-top: 1px solid var(--border); }
-    .footer-inner { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
-    .footer-logo { font-size: 15px; font-weight: 700; color: var(--text); display: flex; align-items: center; gap: 8px; }
-    .footer-links { display: flex; gap: 20px; flex-wrap: wrap; }
-    .footer-links a { font-size: 13px; color: var(--text-soft); }
-    .footer-links a:hover { color: var(--text); }
-    .footer-copy { font-size: 12px; color: var(--text-xsoft); margin-top: 12px; }
-    @media (max-width: 600px) { .deals-grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; } }
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    html{scroll-behavior:smooth}
+    body{font-family:'Inter',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);line-height:1.5;-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
+    a{color:inherit;text-decoration:none}
+    img{max-width:100%;display:block}
+    .container{max-width:1100px;margin:0 auto;padding:0 24px}
+    ${NAV_CSS}
+    .page-hero{padding:56px 0 40px;background:linear-gradient(180deg,#fff8f6 0%,var(--bg) 100%)}
+    .hero-badge{display:inline-flex;align-items:center;gap:7px;background:var(--brand-bg);color:var(--brand);font-size:12.5px;font-weight:600;padding:5px 13px;border-radius:999px;margin-bottom:18px;border:1px solid rgba(230,76,30,.2)}
+    .badge-dot{width:7px;height:7px;background:var(--brand);border-radius:50%;display:inline-block;box-shadow:0 0 0 2px rgba(230,76,30,.3)}
+    .page-hero h1{font-size:clamp(28px,5vw,48px);font-weight:900;letter-spacing:-.03em;margin-bottom:12px;line-height:1.1}
+    .page-hero p{font-size:16px;color:var(--text-soft);max-width:540px;line-height:1.65}
+    .cat-strip{display:flex;flex-wrap:wrap;gap:8px;margin-top:28px}
+    .cat-pill{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;background:var(--surface);border:1px solid var(--border);border-radius:999px;font-size:13px;font-weight:600;color:var(--text);transition:background 80ms,border-color 80ms,color 80ms;white-space:nowrap}
+    .cat-pill:hover,.cat-pill.active{background:var(--brand-bg);border-color:var(--brand);color:var(--brand)}
+    .deals-body{padding:40px 0 72px}
+    .deals-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px}
+    .deal-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;display:flex;flex-direction:column;transition:box-shadow 120ms,transform 120ms,border-color 120ms}
+    .deal-card:hover{box-shadow:var(--shadow-lg);transform:translateY(-3px);border-color:rgba(230,76,30,.25)}
+    .deal-img-wrap{aspect-ratio:1;background:var(--bg);overflow:hidden;position:relative}
+    .deal-img-wrap img{width:100%;height:100%;object-fit:contain}
+    .deal-img-ph{aspect-ratio:1;background:var(--bg)}
+    .saving-badge{position:absolute;top:10px;left:10px;background:var(--green);color:#fff;font-size:11.5px;font-weight:700;padding:4px 10px;border-radius:999px;box-shadow:0 2px 6px rgba(22,163,74,.3)}
+    .deal-body{padding:14px 16px 16px;display:flex;flex-direction:column;flex:1}
+    .deal-title{font-size:13px;line-height:1.45;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-weight:500;margin-bottom:8px;min-height:38px}
+    .deal-price{font-size:22px;font-weight:900;letter-spacing:-.02em;margin-bottom:3px}
+    .deal-was{font-size:12px;color:var(--text-xsoft)}
+    .deal-was span{text-decoration:line-through}
+    .deal-cta{margin-top:auto;padding-top:10px;font-size:12.5px;font-weight:600;color:var(--brand)}
+    .deals-empty{grid-column:1/-1;text-align:center;padding:80px 20px;color:var(--text-soft)}
+    .deals-empty p{font-size:16px;margin-bottom:8px}
+    footer{padding:40px 0;border-top:1px solid var(--border);background:var(--surface)}
+    .footer-inner{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+    .footer-logo{font-size:15px;font-weight:800;color:var(--text);display:flex;align-items:center;gap:8px;letter-spacing:-.01em}
+    .footer-links{display:flex;gap:20px;flex-wrap:wrap}
+    .footer-links a{font-size:13px;color:var(--text-soft)}
+    .footer-links a:hover{color:var(--text)}
+    .footer-copy{font-size:12px;color:var(--text-xsoft);margin-top:12px}
+    @media(max-width:600px){
+      .page-hero{padding:40px 0 24px}
+      .page-hero h1{font-size:clamp(24px,6vw,38px)}
+      .page-hero p{font-size:15px}
+      .cat-strip{gap:6px;margin-top:20px}
+      .cat-pill{padding:6px 11px;font-size:12px}
+      .deals-body{padding:24px 0 48px}
+      .deals-grid{grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:10px}
+      .deal-body{padding:10px 12px 12px}
+      .deal-price{font-size:18px}
+      .deals-empty{padding:48px 16px}
+      footer{padding:24px 0}
+      .footer-inner{flex-direction:column;align-items:flex-start;gap:10px}
+      .footer-links{gap:12px}
+    }
+    ${THEME_CSS}
   </style>
 </head>
 <body>
-<nav class="nav">
-  <div class="container nav-inner">
-    <a class="nav-logo" href="/">
-      <svg viewBox="0 0 36 36" width="28" height="28" aria-hidden="true">
-        <rect width="36" height="36" rx="9" fill="#e64c1e"/>
-        <polyline points="7,11 14,17 21,13 28,24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
-        <path d="M28 24 L28 19 M28 24 L23 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
-      </svg>
-      Bajó el Precio
-    </a>
-    <div class="nav-links">
-      <a class="nav-link" href="/">Buscar</a>
-      <a class="nav-link" href="/dashboard">Mis alertas</a>
-      <a class="nav-link cta" href="https://t.me/bajoelprecio_bot" target="_blank" rel="noopener">Telegram →</a>
-    </div>
-  </div>
-</nav>
+${buildNav({ active: "deals" })}
 
-<main>
+<div class="page-hero">
   <div class="container">
-    <div class="deals-header">
-      <div class="deals-count">${deals.length} productos verificados</div>
-      <h1>🔥 Ofertas reales ahora</h1>
-      <p>Solo aparecen productos cuyo precio actual está dentro del 8% de su mínimo histórico verificado. Sin inflados, sin especulación.</p>
+    <div class="hero-badge">
+      <span class="badge-dot"></span>
+      ${deals.length} producto${deals.length !== 1 ? "s" : ""} verificado${deals.length !== 1 ? "s" : ""} ahora
     </div>
+    <h1>🔥 Ofertas reales en MercadoLibre</h1>
+    <p>Solo aparecen productos cuyo precio actual está dentro del 8% de su mínimo histórico verificado. Sin inflados, sin especulación.</p>
+    ${cats.length > 1 ? `<nav class="cat-strip" aria-label="Filtrar por categoría">
+      <a class="cat-pill active" href="/deals">Todas</a>
+      ${cats.map(c => `<a class="cat-pill" href="/deals/${esc(encodeURIComponent(c.toLowerCase()))}">${esc(c)}</a>`).join("")}
+    </nav>` : ""}
+  </div>
+</div>
+
+<main class="deals-body">
+  <div class="container">
     <div class="deals-grid">
       ${cards}
     </div>
@@ -302,9 +324,8 @@ app.get("/deals", async (req, res) => {
       </div>
       <div class="footer-links">
         <a href="/">Inicio</a>
+        <a href="/deals">Ofertas</a>
         <a href="/dashboard">Mis alertas</a>
-        <a href="/deals">Deals</a>
-        <a href="/developers">API</a>
         <a href="https://t.me/bajoelprecio_bot" target="_blank" rel="noopener">Bot Telegram</a>
         <a href="/sitemap.xml">Sitemap</a>
       </div>
@@ -312,6 +333,7 @@ app.get("/deals", async (req, res) => {
     <p class="footer-copy">Herramienta independiente. No afiliada a MercadoLibre S.A. · Datos con fines informativos.</p>
   </div>
 </footer>
+<script src="/theme.js"></script>
 </body>
 </html>`;
 
@@ -360,25 +382,23 @@ app.get("/deals/:category", async (req, res) => {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Ofertas en ${esc(catLabel)} — MercadoLibre | Bajó el Precio</title>
   <meta name="description" content="Los mejores precios verificados en ${esc(catLabel)} de MercadoLibre Argentina. Historial real, sin inflados.">
+  <link rel="canonical" href="${esc(baseUrl)}/deals/${esc(catParam)}">
   <meta property="og:title" content="Ofertas en ${esc(catLabel)} | Bajó el Precio">
+  <meta property="og:description" content="Los mejores precios verificados en ${esc(catLabel)} de MercadoLibre Argentina. Historial real, sin inflados.">
+  <meta property="og:url" content="${esc(baseUrl)}/deals/${esc(catParam)}">
   <meta property="og:type" content="website">
+  ${deals[0]?.image ? `<meta property="og:image" content="${esc(deals[0].image)}">` : ""}
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 36 36'><rect width='36' height='36' rx='9' fill='%23e64c1e'/><polyline points='7,11 14,17 21,13 28,24' fill='none' stroke='%23fff' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  ${THEME_HEAD_SCRIPT}
   <style>
     :root { --brand:#e64c1e;--brand-dark:#c03d18;--brand-bg:#fff3ef;--text:#111827;--text-soft:#6b7280;--text-xsoft:#9ca3af;--bg:#f9fafb;--surface:#ffffff;--border:#e5e7eb;--radius:12px;--shadow:0 1px 3px rgba(0,0,0,.08);--shadow-md:0 4px 6px -1px rgba(0,0,0,.08); }
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
     body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.5;-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
     a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
     .container{max-width:1100px;margin:0 auto;padding:0 20px}
-    .nav{background:var(--surface);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:100}
-    .nav-inner{display:flex;align-items:center;justify-content:space-between;gap:16px;height:60px}
-    .nav-logo{display:flex;align-items:center;gap:10px;font-weight:700;font-size:16px}
-    .nav-links{display:flex;align-items:center;gap:4px}
-    .nav-link{padding:7px 14px;border-radius:8px;font-size:14px;font-weight:500;color:var(--text-soft);transition:background 80ms,color 80ms}
-    .nav-link:hover{background:var(--bg);color:var(--text)}
-    .nav-link.cta{background:var(--brand);color:#fff}
-    .nav-link.cta:hover{background:var(--brand-dark)}
+    ${NAV_CSS}
     .deals-header{padding:48px 0 32px}
     .deals-header h1{font-size:clamp(24px,4vw,40px);font-weight:800;letter-spacing:-.02em;margin-bottom:10px}
     .deals-header p{font-size:16px;color:var(--text-soft);max-width:580px;line-height:1.6}
@@ -399,21 +419,20 @@ app.get("/deals/:category", async (req, res) => {
     .deal-badge{display:inline-block;background:#ecfdf5;color:#065f46;font-size:12px;font-weight:700;padding:3px 10px;border-radius:999px}
     .deal-cta{font-size:13px;color:var(--brand);font-weight:600;margin-top:auto;padding-top:8px}
     .deals-empty{grid-column:1/-1;text-align:center;padding:80px 20px;color:var(--text-soft)}
-    @media(max-width:600px){.deals-grid{grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px}}
+    @media(max-width:600px){
+      .deals-header{padding:32px 0 20px}
+      .deals-header h1{font-size:clamp(22px,6vw,36px)}
+      .deals-header p{font-size:15px}
+      .deals-grid{grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:10px;padding-bottom:40px}
+      .deal-body{padding:10px 12px 12px}
+      .deal-prices{flex-wrap:wrap;gap:4px}
+      .deal-current{font-size:17px}
+    }
+    ${THEME_CSS}
   </style>
 </head>
 <body>
-<nav class="nav"><div class="container nav-inner">
-  <a class="nav-logo" href="/">
-    <svg viewBox="0 0 36 36" width="28" height="28"><rect width="36" height="36" rx="9" fill="#e64c1e"/><polyline points="7,11 14,17 21,13 28,24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    Bajó el Precio
-  </a>
-  <div class="nav-links">
-    <a class="nav-link" href="/">Buscar</a>
-    <a class="nav-link" href="/deals">Ofertas</a>
-    <a class="nav-link cta" href="https://t.me/bajoelprecio_bot" target="_blank" rel="noopener">Telegram →</a>
-  </div>
-</div></nav>
+${buildNav({ active: "deals" })}
 <main><div class="container">
   <div class="deals-header">
     <div class="breadcrumb"><a href="/deals">Ofertas</a> › ${esc(catLabel)}</div>
@@ -428,6 +447,7 @@ app.get("/deals/:category", async (req, res) => {
     Herramienta independiente. No afiliada a MercadoLibre S.A.
   </div>
 </footer>
+<script src="/theme.js"></script>
 </body></html>`;
 
     res.set("Content-Type", "text/html; charset=utf-8").send(html);
@@ -449,14 +469,14 @@ app.get("/premium", (_req, res) => {
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 36 36'><rect width='36' height='36' rx='9' fill='%23e64c1e'/><polyline points='7,11 14,17 21,13 28,24' fill='none' stroke='%23fff' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  ${THEME_HEAD_SCRIPT}
   <style>
+    :root{--brand:#e64c1e;--brand-dark:#c03d18;--brand-bg:#fff3ef;--text:#111827;--text-soft:#6b7280;--text-xsoft:#9ca3af;--bg:#f9fafb;--surface:#fff;--border:#e5e7eb;--radius:12px;--radius-lg:16px;--shadow-md:0 4px 6px -1px rgba(0,0,0,.08)}
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-    body{font-family:'Inter',system-ui,sans-serif;background:#f9fafb;color:#111827;line-height:1.5;-webkit-font-smoothing:antialiased}
+    body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.5;-webkit-font-smoothing:antialiased}
     a{color:inherit;text-decoration:none}
     .container{max-width:640px;margin:0 auto;padding:0 20px}
-    .nav{background:#fff;border-bottom:1px solid #e5e7eb;position:sticky;top:0;z-index:100}
-    .nav-inner{display:flex;align-items:center;justify-content:space-between;height:60px}
-    .nav-logo{font-weight:700;font-size:16px;display:flex;align-items:center;gap:10px}
+    ${NAV_CSS}
     .hero{padding:64px 0 48px;text-align:center}
     .hero h1{font-size:clamp(28px,5vw,48px);font-weight:800;letter-spacing:-.02em;line-height:1.1;margin-bottom:16px}
     .hero p{font-size:18px;color:#6b7280;max-width:480px;margin:0 auto 32px}
@@ -465,7 +485,7 @@ app.get("/premium", (_req, res) => {
     .plan.recommended{border-color:#e64c1e;position:relative}
     .plan-badge{position:absolute;top:-13px;left:50%;transform:translateX(-50%);background:#e64c1e;color:#fff;font-size:12px;font-weight:700;padding:4px 16px;border-radius:999px;white-space:nowrap}
     .plan-name{font-size:14px;font-weight:600;color:#6b7280;margin-bottom:8px}
-    .plan-price{font-size:40px;font-weight:800;line-height:1}
+    .plan-price{font-size:clamp(28px,8vw,40px);font-weight:800;line-height:1}
     .plan-price span{font-size:16px;font-weight:500;color:#6b7280}
     .plan-features{list-style:none;margin:24px 0;text-align:left;display:flex;flex-direction:column;gap:10px}
     .plan-features li{display:flex;align-items:center;gap:10px;font-size:15px}
@@ -482,16 +502,19 @@ app.get("/premium", (_req, res) => {
     .faq-item{margin-bottom:16px}
     .faq-q{font-weight:600;margin-bottom:4px}
     .faq-a{font-size:14px;color:#6b7280;line-height:1.6}
+    @media(max-width:600px){
+      .hero{padding:40px 0 32px}
+      .hero h1{font-size:clamp(24px,6vw,36px);line-height:1.15}
+      .hero p{font-size:16px}
+      .plan{padding:20px}
+      .faq{padding-bottom:40px}
+      .faq h2{font-size:20px}
+    }
+    ${THEME_CSS}
   </style>
 </head>
 <body>
-<nav class="nav"><div class="container nav-inner">
-  <a class="nav-logo" href="/">
-    <svg viewBox="0 0 36 36" width="28" height="28"><rect width="36" height="36" rx="9" fill="#e64c1e"/><polyline points="7,11 14,17 21,13 28,24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    Bajó el Precio
-  </a>
-  <a href="/" style="font-size:14px;font-weight:500;color:#6b7280">← Volver</a>
-</div></nav>
+${buildNav({ active: null })}
 <main><div class="container">
   <div class="hero">
     <h1>Comprar en el momento justo.<br>Sin perder una oferta.</h1>
@@ -542,6 +565,7 @@ app.get("/premium", (_req, res) => {
     </div>
   </div>
 </div></main>
+<script src="/theme.js"></script>
 </body></html>`;
   res.set("Content-Type", "text/html; charset=utf-8").send(html);
 });
@@ -673,6 +697,16 @@ app.post("/admin/run-tracker", requireAdmin, async (_req, res) => {
   res.json({ ok: true, message: "tracker iniciado en background" });
   import("./tracker.js").then(({ trackerCycle }) => trackerCycle()).catch(console.error);
 });
+// Enriquece imágenes faltantes en background (fallback de 5 niveles por producto).
+app.post("/admin/enrich-images", requireAdmin, async (_req, res) => {
+  res.json({ ok: true, message: "enrich-images iniciado en background" });
+  import("./enrich-images.js").then(({ enrichImages }) => enrichImages()).catch(console.error);
+});
+
+app.post("/admin/recategorize", requireAdmin, async (_req, res) => {
+  res.json({ ok: true, message: "recategorize iniciado en background" });
+  import("./recategorize.js").then(({ recategorize }) => recategorize()).catch(console.error);
+});
 // Debug: llama la API de ML (con token si está configurado) y devuelve el status HTTP.
 // TEMP: sin auth de admin para diagnosticar desde producción.
 app.get("/debug/ml-status", async (_req, res) => {
@@ -701,24 +735,31 @@ app.get("/developers", (req, res) => {
   <meta name="description" content="API de historial de precios de MercadoLibre para Argentina. 100 requests/día gratis. Plan Pro sin límite.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  ${THEME_HEAD_SCRIPT}
   <style>
-    :root{--brand:#e64c1e;--brand-dark:#c03d18;--text:#111827;--text-soft:#6b7280;--bg:#f9fafb;--surface:#fff;--border:#e5e7eb;--radius:12px}
+    :root{--brand:#e64c1e;--brand-dark:#c03d18;--brand-bg:#fff3ef;--text:#111827;--text-soft:#6b7280;--text-xsoft:#9ca3af;--bg:#f9fafb;--surface:#fff;--border:#e5e7eb;--radius:12px}
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
     body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.6;-webkit-font-smoothing:antialiased}
     a{color:var(--brand);text-decoration:none}
     a:hover{text-decoration:underline}
     .container{max-width:860px;margin:0 auto;padding:0 20px}
-    .nav{background:var(--surface);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:100}
-    .nav-inner{display:flex;align-items:center;justify-content:space-between;height:60px}
-    .nav-logo{display:flex;align-items:center;gap:10px;font-weight:700;font-size:16px;color:var(--text);text-decoration:none}
-    .nav-link{padding:7px 14px;border-radius:8px;font-size:14px;font-weight:500;color:var(--text-soft)}
-    .nav-link:hover{text-decoration:none;background:var(--bg);color:var(--text)}
+    ${NAV_CSS}
     .hero{padding:64px 0 48px}
     .hero h1{font-size:clamp(28px,5vw,48px);font-weight:800;letter-spacing:-.02em;margin-bottom:16px}
     .hero p{font-size:18px;color:var(--text-soft);max-width:600px;margin-bottom:32px}
     .pill{display:inline-block;background:#fff3ef;color:var(--brand);font-size:13px;font-weight:600;padding:4px 14px;border-radius:999px;margin-bottom:20px}
     .plans{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin:48px 0}
-    @media(max-width:600px){.plans{grid-template-columns:1fr}}
+    @media(max-width:600px){
+      .plans{grid-template-columns:1fr;margin:32px 0}
+      .plan{padding:20px}
+      .hero{padding:40px 0 32px}
+      .hero h1{font-size:clamp(24px,6vw,38px)}
+      .hero p{font-size:16px}
+      .section{margin:32px 0}
+      .endpoint{padding:14px}
+      pre{padding:14px;font-size:12px}
+      .plan .price{font-size:clamp(22px,6vw,32px)}
+    }
     .plan{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:28px}
     .plan.pro{border-color:var(--brand);background:#fff8f6}
     .plan h3{font-size:18px;font-weight:700;margin-bottom:6px}
@@ -740,18 +781,11 @@ app.get("/developers", (req, res) => {
     .endpoint h4{font-size:15px;font-weight:600;margin:8px 0 4px;font-family:'JetBrains Mono',monospace;color:var(--brand-dark)}
     .endpoint p{font-size:14px;color:var(--text-soft);margin-bottom:12px}
     footer{padding:40px 0;border-top:1px solid var(--border);text-align:center;font-size:13px;color:var(--text-soft);margin-top:48px}
+    ${THEME_CSS}
   </style>
 </head>
 <body>
-<nav class="nav">
-  <div class="container nav-inner">
-    <a class="nav-logo" href="/">
-      <svg viewBox="0 0 36 36" width="28" height="28" aria-hidden="true"><rect width="36" height="36" rx="9" fill="#e64c1e"/><polyline points="7,11 14,17 21,13 28,24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M28 24 L28 19 M28 24 L23 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      Bajó el Precio
-    </a>
-    <a class="nav-link" href="/">← Volver</a>
-  </div>
-</nav>
+${buildNav({ active: null })}
 <main>
 <div class="container">
   <div class="hero">
@@ -837,6 +871,7 @@ X-RateLimit-Remaining: 87</pre>
     <div style="margin-top:8px">Datos de MercadoLibre Argentina. No afiliado con MercadoLibre S.A.</div>
   </div>
 </footer>
+<script src="/theme.js"></script>
 </body>
 </html>`);
 });
@@ -977,9 +1012,13 @@ app.listen(port, () => {
     trackerRunning = true;
     import("./tracker.js")
       .then(({ trackerCycle }) => trackerCycle())
+      .then(() => import("./enrich-images.js").then(({ enrichImages }) => enrichImages()))
       .catch((e) => console.error("[tracker] error:", e.message))
       .finally(() => { trackerRunning = false; });
   };
+
+  // Run enrich-images early at startup so null images get resolved quickly after each deploy.
+  setTimeout(() => import("./enrich-images.js").then(({ enrichImages }) => enrichImages()).catch(console.error), 15_000);
 
   // Primera corrida: espera 5min para que el server arranque limpio.
   setTimeout(() => {
@@ -998,6 +1037,7 @@ app.listen(port, () => {
       .then(({ seedCatalog, refreshUncoveredProducts }) =>
         seedCatalog({ resultsPerQuery: 50 }).then(() => refreshUncoveredProducts({ limit: 150 }))
       )
+      .then(() => import("./enrich-images.js").then(({ enrichImages }) => enrichImages()))
       .catch((e) => console.error("[seed] error:", e.message))
       .finally(() => { seedRunning = false; });
   };
