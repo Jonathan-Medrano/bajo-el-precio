@@ -70,6 +70,18 @@ model Alert {
   @@index([productId])
 }
 
+/// Código temporal de vinculación Telegram (6 dígitos, expira en 5 min).
+/// El modal web genera el código → el bot lo confirma → el frontend lo detecta por polling.
+model LinkingCode {
+  id        String   @id @default(cuid())
+  code      String   @unique // 6 dígitos
+  chatId    String?  // null hasta que el bot lo confirme
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([expiresAt])
+}
+
 /// Referidos: cada fila = un amigo que registró al referente. El referente gana +1 alerta por fila.
 model Referral {
   id         Int      @id @default(autoincrement())

@@ -369,7 +369,6 @@ ${buildNav({ active: "deals" })}
         <a href="/deals">Ofertas</a>
         <a href="/dashboard">Mis alertas</a>
         <a href="https://t.me/bajoelprecio_bot" target="_blank" rel="noopener">Bot Telegram</a>
-        <a href="/sitemap.xml">Sitemap</a>
       </div>
     </div>
     <p class="footer-copy">Herramienta independiente. No afiliada a MercadoLibre S.A. · Datos con fines informativos.</p>
@@ -539,8 +538,9 @@ ${buildNav({ active: "deals" })}
   }
 });
 
-// Página de pricing /premium
-app.get("/premium", (_req, res) => {
+// Página de pricing /premium — temporalmente deshabilitada hasta configurar MP
+app.get("/premium", (_req, res) => res.redirect("/"));
+app.get("/premium/_disabled", (_req, res) => {
   const html = `<!DOCTYPE html>
 <html lang="es-AR">
 <head>
@@ -720,6 +720,39 @@ app.delete("/api/alerts", async (req, res) => {
   }
 });
 
+// Telegram linking: genera un código de 6 dígitos válido 5 min.
+// El modal web lo muestra; el usuario lo manda al bot para vincular su chatId.
+app.post("/api/link-code", async (req, res) => {
+  try {
+    const code = String(Math.floor(100000 + Math.random() * 900000));
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+    await prisma.linkingCode.upsert({
+      where: { code },
+      update: { chatId: null, expiresAt },
+      create: { code, expiresAt },
+    });
+    // Limpiar expirados (best-effort, no bloquea la respuesta)
+    prisma.linkingCode.deleteMany({ where: { expiresAt: { lt: new Date() } } }).catch(() => {});
+    res.json({ code });
+  } catch {
+    res.status(500).json({ error: "fallo" });
+  }
+});
+
+// Polling del modal: cuando el bot confirme el código, devuelve el chatId y borra el registro.
+app.get("/api/link-status/:code", async (req, res) => {
+  try {
+    const { code } = req.params;
+    const row = await prisma.linkingCode.findUnique({ where: { code } });
+    if (!row || row.expiresAt < new Date()) return res.status(404).json({ linked: false });
+    if (!row.chatId) return res.json({ linked: false });
+    await prisma.linkingCode.delete({ where: { code } });
+    res.json({ linked: true, chatId: row.chatId });
+  } catch {
+    res.status(500).json({ error: "fallo" });
+  }
+});
+
 // Estado del plan de un usuario (para el bot/web: cuántas alertas usó, su tope).
 app.get("/api/plan/:chatId", async (req, res) => {
   res.json(await getPlan(req.params.chatId));
@@ -764,14 +797,12 @@ app.post("/admin/import-products", requireAdmin, async (req, res) => {
   }
   res.json({ ok: true, imported: ok, skipped: skip });
 });
-// Seed del catálogo con productos trending de ML (dispara en background).
+// Seed del catálogo vía highlights API (funciona desde cloud IPs con Bearer token).
 app.post("/admin/seed-catalog", requireAdmin, async (_req, res) => {
-  res.json({ ok: true, message: "seeding iniciado en background" });
-  // Fire and forget — no esperamos el resultado para no timeout
-  import("./seed-catalog.js")
-    .then(({ seedCatalog, refreshUncoveredProducts }) =>
-      seedCatalog().then(() => refreshUncoveredProducts())
-    )
+  res.json({ ok: true, message: "seed-products iniciado en background" });
+  import("./seed-products.js")
+    .then(({ seedProducts }) => seedProducts())
+    .then(() => import("./enrich-images.js").then(({ enrichImages }) => enrichImages()))
     .catch(console.error);
 });
 // Dispara un ciclo del tracker en background (para debugging / forzar corrida).
@@ -1109,16 +1140,14 @@ app.listen(port, () => {
     setInterval(runTracker, intervalMs);
   }, 5 * 60_000);
 
-  // Search-based price accumulator: runs seedCatalog every 2h via ML Search API.
-  // This is the primary way we collect prices — Search API works from cloud IPs without auth.
+  // Discovery via ML highlights API (category tree walk) — works from cloud IPs with Bearer token.
+  // Search API (/sites/MLA/search) is blocked from datacenter IPs; highlights is not.
   let seedRunning = false;
   const runSeed = () => {
     if (seedRunning) { console.log("[seed] ya corriendo, skip"); return; }
     seedRunning = true;
-    import("./seed-catalog.js")
-      .then(({ seedCatalog, refreshUncoveredProducts }) =>
-        seedCatalog({ resultsPerQuery: 50 }).then(() => refreshUncoveredProducts({ limit: 150 }))
-      )
+    import("./seed-products.js")
+      .then(({ seedProducts }) => seedProducts())
       .then(() => import("./enrich-images.js").then(({ enrichImages }) => enrichImages()))
       .catch((e) => console.error("[seed] error:", e.message))
       .finally(() => { seedRunning = false; });
@@ -1126,7 +1155,7 @@ app.listen(port, () => {
 
   // First seed: wait 10min so startup noise settles and tracker has a head start.
   setTimeout(() => {
-    console.log("[seed] primera seed en 10min, luego cada 2h");
+    console.log("[seed] primera seed en 10min via highlights API, luego cada 2h");
     runSeed();
     setInterval(runSeed, 2 * 3_600_000);
   }, 10 * 60_000);

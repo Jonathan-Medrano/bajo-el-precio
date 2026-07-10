@@ -1,7 +1,7 @@
 // Planes y límites. La monetización B2C: free limitado, premium ilimitado.
 import { prisma } from "./db.js";
 
-export const FREE_ALERT_LIMIT = Number(process.env.FREE_ALERT_LIMIT) || 3;
+export const FREE_ALERT_LIMIT = Number(process.env.FREE_ALERT_LIMIT) || 999;
 
 /** ¿El usuario (chatId) tiene premium vigente? */
 export async function isPremium(chatId) {

@@ -281,16 +281,22 @@ footer{max-width:960px;margin:0 auto;padding:32px 24px;border-top:1px solid var(
 .footer-copy{font-size:12px;color:var(--text-xsoft)}
 
 /* Modal */
-.modal-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:200;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(4px)}
+.modal-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:200;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(4px)}
 .modal-backdrop.open{display:flex}
-.modal{background:var(--surface);border-radius:20px;padding:32px;max-width:420px;width:100%;box-shadow:var(--shadow-lg);position:relative}
-.modal h3{font-size:20px;font-weight:800;margin-bottom:6px}
-.modal>p{font-size:14px;color:var(--text-soft);margin-bottom:20px;line-height:1.6}
-.modal-input{width:100%;padding:12px 14px;border:2px solid var(--border);border-radius:10px;font-size:15px;font-family:inherit;outline:none;margin-bottom:10px;transition:border-color .12s,box-shadow .12s}
+.modal{background:var(--surface);border-radius:20px;padding:28px 24px;max-width:400px;width:100%;box-shadow:var(--shadow-lg);position:relative}
+.modal h3{font-size:18px;font-weight:800;margin-bottom:6px}
+.modal>p{font-size:14px;color:var(--text-soft);margin-bottom:16px;line-height:1.5}
+.modal-input{width:100%;padding:12px 14px;border:2px solid var(--border);border-radius:10px;font-size:15px;font-family:inherit;outline:none;margin-bottom:10px;transition:border-color .12s,box-shadow .12s;box-sizing:border-box}
 .modal-input:focus{border-color:var(--brand);box-shadow:0 0 0 4px rgba(230,76,30,.1)}
-.modal-row{display:flex;gap:10px}
-.modal-close{position:absolute;right:16px;top:16px;background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-soft);line-height:1}
+.modal-close{position:absolute;right:14px;top:14px;background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-soft);line-height:1;padding:4px}
 #modal-status{font-size:13px;color:var(--text-soft);margin-top:10px;min-height:18px}
+.link-code-box{background:var(--bg);border:2px dashed var(--border);border-radius:12px;padding:16px;text-align:center;margin-bottom:16px}
+.link-code{font-size:36px;font-weight:900;letter-spacing:8px;color:var(--brand);font-variant-numeric:tabular-nums;line-height:1}
+.link-code-hint{font-size:12px;color:var(--text-xsoft);margin-top:6px}
+.modal-linked{background:rgba(34,197,94,.1);border:1.5px solid rgba(34,197,94,.3);border-radius:10px;padding:10px 14px;font-size:14px;font-weight:600;color:#16a34a;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+[data-theme="dark"] .modal-linked{color:#4ade80}
+.modal-actions{display:flex;gap:8px;flex-direction:column}
+.btn-full{width:100%;box-sizing:border-box}
 
 @media(max-width:640px){
   .wrap{padding:20px 16px 48px}
@@ -308,6 +314,11 @@ footer{max-width:960px;margin:0 auto;padding:32px 24px;border-top:1px solid var(
   footer{padding:24px 16px}
   .footer-inner{flex-direction:column;align-items:flex-start;gap:10px}
   .footer-links{gap:12px;flex-wrap:wrap}
+}
+@media(max-width:480px){
+  .modal{padding:22px 18px;border-radius:16px}
+  .modal h3{font-size:17px}
+  .link-code{font-size:28px;letter-spacing:6px}
 }
 ${THEME_CSS}
 </style>
@@ -383,7 +394,6 @@ ${buildNav({ active: null, baseUrl: appUrl })}
       <a href="${esc(appUrl)}/deals">Ofertas</a>
       <a href="${esc(appUrl)}/dashboard">Mis alertas</a>
       <a href="https://t.me/bajoelprecio_bot" target="_blank" rel="noopener">Bot Telegram</a>
-      <a href="${esc(appUrl)}/sitemap.xml">Sitemap</a>
     </div>
   </div>
   <p class="footer-copy">Herramienta independiente. No afiliada a MercadoLibre S.A. Datos con fines informativos.</p>
@@ -392,37 +402,114 @@ ${buildNav({ active: null, baseUrl: appUrl })}
 <div class="modal-backdrop" id="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
   <div class="modal">
     <button class="modal-close" id="modal-close" aria-label="Cerrar">✕</button>
-    <h3 id="modal-title">Activar alerta de precio</h3>
-    <p>Te avisamos por Telegram cuando el precio baje al valor que elegís.</p>
-    <input class="modal-input" id="modal-chatid" type="text" placeholder="Tu Chat ID de Telegram (ej: 123456789)">
-    <input class="modal-input" id="modal-price" type="number" placeholder="Precio objetivo en pesos (opcional)" min="0">
-    <p style="font-size:12px;color:var(--text-xsoft);margin-bottom:14px">
-      No sabés tu ID? Mandá <strong>/start</strong> a <a href="https://t.me/bajoelprecio_bot" target="_blank" style="color:var(--brand)">@bajoelprecio_bot</a>.
-    </p>
-    <div class="modal-row">
-      <button class="btn" style="background:var(--bg);color:var(--text);border:1.5px solid var(--border);flex:none;padding:12px 18px" id="modal-cancel">Cancelar</button>
-      <button class="btn btn-alert" id="modal-save">Activar alerta</button>
+    <h3 id="modal-title">🔔 Alerta de precio</h3>
+
+    <!-- Paso 1: vincular Telegram (se oculta una vez vinculado) -->
+    <div id="modal-link-section">
+      <p>Vinculá tu Telegram una sola vez — después activás alertas con un clic.</p>
+      <div class="link-code-box">
+        <div class="link-code" id="modal-code">······</div>
+        <div class="link-code-hint" id="modal-code-hint">Generando código…</div>
+      </div>
+      <a class="btn btn-alert btn-full" id="modal-tg-btn" href="#" target="_blank" rel="noopener">
+        Abrir bot en Telegram →
+      </a>
+      <p id="modal-link-status" style="font-size:12px;color:var(--text-xsoft);margin-top:10px;text-align:center;min-height:16px"></p>
     </div>
-    <p id="modal-status"></p>
+
+    <!-- Paso 2: configurar alerta (se muestra cuando ya está vinculado) -->
+    <div id="modal-linked-section" style="display:none">
+      <div class="modal-linked" id="modal-linked-badge">✓ Telegram vinculado</div>
+      <input class="modal-input" id="modal-price" type="number" placeholder="Precio objetivo en $ (opcional — vacío = cualquier baja)" min="0">
+      <div class="modal-actions">
+        <button class="btn btn-alert btn-full" id="modal-save">Activar alerta</button>
+        <button style="background:none;border:none;font-size:12px;color:var(--text-xsoft);cursor:pointer;padding:4px" id="modal-unlink">Desvincular cuenta</button>
+      </div>
+      <p id="modal-status"></p>
+    </div>
   </div>
 </div>
 
 <script>
   const PRODUCT_ID = ${JSON.stringify(product.id).replace(/<\/script>/gi, "<\\/script>")};
   const PRODUCT_TITLE = ${JSON.stringify(title).replace(/<\/script>/gi, "<\\/script>")};
-  const openModal = () => { document.getElementById('modal').classList.add('open'); document.getElementById('modal-chatid').focus(); };
-  const closeModal = () => document.getElementById('modal').classList.remove('open');
+
+  let _pollTimer = null;
+
+  function closeModal() {
+    document.getElementById('modal').classList.remove('open');
+    if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
+  }
+
+  function showLinked(chatId) {
+    document.getElementById('modal-link-section').style.display = 'none';
+    const sec = document.getElementById('modal-linked-section');
+    sec.style.display = '';
+    document.getElementById('modal-linked-badge').textContent = '✓ ' + chatId;
+    document.getElementById('modal-status').textContent = '';
+    document.getElementById('modal-price').value = '';
+  }
+
+  async function startLinking() {
+    document.getElementById('modal-code').textContent = '······';
+    document.getElementById('modal-code-hint').textContent = 'Generando código…';
+    document.getElementById('modal-link-status').textContent = '';
+    document.getElementById('modal-tg-btn').href = '#';
+    try {
+      const r = await fetch('/api/link-code', { method: 'POST' });
+      const { code } = await r.json();
+      document.getElementById('modal-code').textContent = code;
+      document.getElementById('modal-code-hint').textContent = 'Enviá este código al bot de Telegram';
+      document.getElementById('modal-tg-btn').href = 'https://t.me/bajoelprecio_bot?start=link_' + code;
+      document.getElementById('modal-link-status').textContent = 'Esperando vinculación…';
+      if (_pollTimer) clearInterval(_pollTimer);
+      _pollTimer = setInterval(async () => {
+        try {
+          const pr = await fetch('/api/link-status/' + code);
+          if (!pr.ok) { clearInterval(_pollTimer); _pollTimer = null; document.getElementById('modal-link-status').textContent = 'Código expirado. Recargá el modal.'; return; }
+          const pd = await pr.json();
+          if (pd.chatId) {
+            clearInterval(_pollTimer); _pollTimer = null;
+            localStorage.setItem('tg_chatid', pd.chatId);
+            showLinked(pd.chatId);
+          }
+        } catch {}
+      }, 2000);
+    } catch {
+      document.getElementById('modal-code-hint').textContent = 'Error al generar código. Recargá la página.';
+    }
+  }
+
+  async function openModal() {
+    document.getElementById('modal').classList.add('open');
+    const saved = localStorage.getItem('tg_chatid');
+    if (saved) {
+      showLinked(saved);
+    } else {
+      document.getElementById('modal-link-section').style.display = '';
+      document.getElementById('modal-linked-section').style.display = 'none';
+      await startLinking();
+    }
+  }
+
   document.getElementById('alert-btn').addEventListener('click', openModal);
   document.getElementById('modal-close').addEventListener('click', closeModal);
-  document.getElementById('modal-cancel').addEventListener('click', closeModal);
   document.getElementById('modal').addEventListener('click', e => { if (e.target === document.getElementById('modal')) closeModal(); });
+
+  document.getElementById('modal-unlink').addEventListener('click', () => {
+    localStorage.removeItem('tg_chatid');
+    document.getElementById('modal-linked-section').style.display = 'none';
+    document.getElementById('modal-link-section').style.display = '';
+    startLinking();
+  });
+
   document.getElementById('modal-save').addEventListener('click', async () => {
-    const chatId = document.getElementById('modal-chatid').value.trim();
+    const chatId = localStorage.getItem('tg_chatid');
     const targetPrice = document.getElementById('modal-price').value.trim();
     const statusEl = document.getElementById('modal-status');
-    if (!chatId) { statusEl.textContent = 'Ingresá tu Chat ID.'; return; }
+    if (!chatId) { statusEl.textContent = 'Vinculá tu Telegram primero.'; return; }
     document.getElementById('modal-save').disabled = true;
-    statusEl.textContent = 'Guardando...';
+    statusEl.textContent = 'Guardando…';
     try {
       const r = await fetch('/api/alerts', {
         method: 'POST',
@@ -432,11 +519,11 @@ ${buildNav({ active: null, baseUrl: appUrl })}
       const d = await r.json();
       if (d.ok) {
         statusEl.textContent = '✅ ¡Alerta activada! Te avisamos cuando baje.';
-        setTimeout(closeModal, 2500);
+        setTimeout(closeModal, 2200);
       } else if (d.error === 'limit') {
-        statusEl.innerHTML = '⭐ Llegaste al límite. <a href="/premium" style="color:var(--brand);font-weight:600">Activá Plan Pro</a> para alertas ilimitadas.';
+        statusEl.innerHTML = '⭐ Llegaste al límite. <a href="/premium" style="color:var(--brand);font-weight:600">Activá Plan Pro</a>.';
       } else {
-        statusEl.textContent = 'Error. Verificá el Chat ID.';
+        statusEl.textContent = 'Error al guardar. Intentá de nuevo.';
       }
     } catch { statusEl.textContent = 'Error de conexión.'; }
     finally { document.getElementById('modal-save').disabled = false; }

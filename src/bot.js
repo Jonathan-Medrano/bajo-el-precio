@@ -24,25 +24,45 @@ async function handleUpdate(update) {
   const cmd = text.split(" ")[0].replace(/@.*$/, "").toLowerCase();
 
   if (cmd === "/start" || cmd === "/ayuda") {
-    // Handle referral deep link: /start ref_CHATID
     const startPayload = text.split(" ")[1];
+
+    // Vinculación web: /start link_XXXXXX — el modal web generó este código
+    if (startPayload?.startsWith("link_")) {
+      const code = startPayload.slice(5);
+      try {
+        const updated = await prisma.linkingCode.updateMany({
+          where: { code, chatId: null, expiresAt: { gt: new Date() } },
+          data: { chatId },
+        });
+        if (updated.count > 0) {
+          await sendUser(chatId,
+            `✅ <b>¡Cuenta vinculada!</b>\n\n` +
+            `Ya podés activar alertas de precio desde la web sin ingresar tu ID.\n\n` +
+            `🌐 <a href="${PUBLIC_URL}">${PUBLIC_URL}</a>`
+          );
+          return;
+        }
+      } catch {}
+      await sendUser(chatId, `⚠️ El código expiró o ya fue usado. Volvé a la web para generar uno nuevo.`);
+      return;
+    }
+
+    // Referido: /start ref_CHATID
     if (startPayload?.startsWith("ref_")) {
       const referrerId = startPayload.slice(4);
       if (referrerId && referrerId !== chatId) {
         await processReferral(referrerId, chatId);
       }
     }
+
     const refLink = `https://t.me/bajoelprecio_bot?start=ref_${chatId}`;
     await sendUser(
       chatId,
       `📉 <b>Bajó el Precio</b> — historial real de precios de MercadoLibre.\n\n` +
-      `Tu Chat ID es: <code>${chatId}</code>\n\n` +
       `<b>Comandos:</b>\n` +
       `• /mis_alertas — ver tus alertas activas\n` +
-      `• /borrar &lt;ID&gt; — eliminar una alerta\n` +
-      `• /premium — activar plan Pro (alertas ilimitadas)\n\n` +
-      `🌐 Buscá cualquier producto en <a href="${PUBLIC_URL}">${PUBLIC_URL}</a> ` +
-      `y activá la alerta desde ahí con tu Chat ID.\n\n` +
+      `• /borrar &lt;ID&gt; — eliminar una alerta\n\n` +
+      `🌐 Buscá cualquier producto en <a href="${PUBLIC_URL}">${PUBLIC_URL}</a>\n\n` +
       `💌 <b>Referí amigos:</b> +1 alerta extra por cada uno\n` +
       `<a href="${refLink}">${refLink}</a>`
     );
@@ -55,47 +75,22 @@ async function handleUpdate(update) {
       await sendUser(chatId, "No tenés alertas activas.\n\n🌐 Activalas desde " + PUBLIC_URL);
       return;
     }
-    const plan = await getPlan(chatId);
     const lines = alerts.map((a, i) => {
       const price = a.currentPrice ? `$${Number(a.currentPrice).toLocaleString("es-AR")}` : "–";
       const target = a.targetPrice ? `$${Number(a.targetPrice).toLocaleString("es-AR")}` : "cualquier baja";
       return `${i + 1}. <b>${a.title.slice(0, 50)}</b>\n   Precio actual: ${price} · objetivo: ${target}\n   ID: <code>${a.id}</code>`;
     });
-    const limitText = plan.premium ? "ilimitadas" : `${alerts.length}/${plan.limit}`;
-    const upgradeHint = !plan.premium && alerts.length >= plan.limit
-      ? `\n\n⭐ Llegaste al límite del plan gratis. Usá /premium para alertas ilimitadas.`
-      : "";
     await sendUser(
       chatId,
-      `🔔 <b>Tus alertas activas</b> (${limitText}):\n\n` +
+      `🔔 <b>Tus alertas activas</b> (${alerts.length}):\n\n` +
       lines.join("\n\n") +
-      `\n\nPara borrar: /borrar <ID>` +
-      upgradeHint
+      `\n\nPara borrar: /borrar <ID>`
     );
     return;
   }
 
   if (cmd === "/premium") {
-    const plan = await getPlan(chatId);
-    if (plan.premium) {
-      await sendUser(chatId, `✅ <b>Ya tenés Premium activo.</b>\n\nAlertas usadas: ${plan.used} (ilimitadas).`);
-      return;
-    }
-    try {
-      const { initPoint, plan: selectedPlan } = await createPaymentPreference(chatId);
-      await sendUser(
-        chatId,
-        `⭐ <b>Plan Pro — ${selectedPlan.label}</b>\n\n` +
-        `✅ Alertas ilimitadas\n` +
-        `✅ Notificaciones inmediatas\n` +
-        `✅ Sin restricciones\n\n` +
-        `Precio: $${Number(selectedPlan.amount).toLocaleString("es-AR")} ARS\n\n` +
-        `<a href="${initPoint}">💳 Pagar con MercadoPago</a>`
-      );
-    } catch (e) {
-      console.error("[bot /premium]", e.message);
-      await sendUser(chatId, "No pude generar el link de pago. Probá de nuevo en unos minutos.");
-    }
+    await sendUser(chatId, `ℹ️ Los planes de pago estarán disponibles próximamente.`);
     return;
   }
 
@@ -145,7 +140,7 @@ async function handleUpdate(update) {
     const result = await subscribeAlert({ chatId, productId });
     let alertLine;
     if (result.error === "limit") {
-      alertLine = `\n\n⚠️ Llegaste al límite de ${result.limit} alertas. Usá /premium para más.`;
+      alertLine = `\n\n⚠️ No se pudo activar la alerta. Intentá de nuevo.`;
     } else if (result.created) {
       alertLine = `\n\n🔔 <b>Alerta activada.</b> Te aviso cuando baje de precio.`;
     } else {

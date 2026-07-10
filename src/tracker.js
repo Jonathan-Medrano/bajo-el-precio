@@ -1,123 +1,73 @@
 import { pathToFileURL } from "node:url";
 import { prisma } from "./db.js";
-import { readItemsBatchFromApi, readProductPriceFromApi, readProductPrice, closeContext } from "./ml/price-reader.js";
+import { readCatalogProduct } from "./ml/catalog-price.js";
 import { onNewPrice } from "./alerts.js";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const jitter = (a, b) => Math.floor(a + Math.random() * (b - a));
-// Máximo de bloqueos CONSECUTIVOS antes de abortar el ciclo.
-// Un bloqueo no es definitivo: ML suele desbloquearse en 30-60s, así que dormimos y reintentamos.
-const MAX_CONSECUTIVE_BLOCKS = 3;
-// Tras un bloqueo: esperar entre 45s y 90s antes de seguir (deja que ML se olvide de nosotros).
-const BLOCK_SLEEP_MS = () => jitter(45_000, 90_000);
+// Concurrencia segura: 8 requests en paralelo con 400ms entre batches.
+const CONCURRENCY = 8;
+const BATCH_DELAY_MS = 400;
 
-async function savePrice(product, price, title, image, cheapestUrl) {
-  await prisma.pricePoint.create({ data: { productId: product.id, price } });
-  await prisma.product.update({
-    where: { id: product.id },
-    data: {
-      lastTracked: new Date(),
-      ...(title && { title }),
-      ...(image && { image }),
-      ...(cheapestUrl && { url: cheapestUrl }),
-    },
+async function refreshProduct(p) {
+  const needsMeta = !p.title || p.title === "(por scrapear)" || !p.image;
+  const r = await readCatalogProduct(p.id, { withMeta: needsMeta });
+  if (r.blocked) return false;
+
+  // Persist title/image regardless of price — stubs need metadata even with no active listing.
+  const metaUpdate = {};
+  if (r.title) metaUpdate.title = r.title;
+  if (r.image) metaUpdate.image = r.image;
+  if (r.cheapestUrl) metaUpdate.url = r.cheapestUrl;
+
+  if (!r.price) {
+    if (Object.keys(metaUpdate).length) {
+      await prisma.product.update({ where: { id: p.id }, data: metaUpdate });
+    }
+    return false;
+  }
+
+  const lastPoint = await prisma.pricePoint.findFirst({
+    where: { productId: p.id },
+    orderBy: { seenAt: "desc" },
+    select: { price: true },
   });
-  await onNewPrice(product.id, price);
-  console.log(`  ${product.id} $${price}`);
+  if (!lastPoint || lastPoint.price !== r.price) {
+    await prisma.pricePoint.create({ data: { productId: p.id, price: r.price } });
+    await onNewPrice(p.id, r.price);
+  }
+  await prisma.product.update({
+    where: { id: p.id },
+    data: { lastTracked: new Date(), ...metaUpdate },
+  });
+  console.log(`  ${p.id} $${r.price}`);
+  return true;
 }
 
 /**
- * Ciclo del tracker con API-first:
- *  1. Agrupa productos por tipo: MLA* (batch API) vs MLAU* / desconocidos.
- *  2. Batchea los MLA* → una request cada 20 productos.
- *  3. Los que no obtuvieron precio (o son MLAU*) → Playwright como fallback.
+ * Tracker via ML /products/{id}/items (Bearer auth required).
+ * Works for all catalog product IDs — the vast majority of ML Argentina products.
+ * Playwright removed: blocked from Fly.io cloud IPs regardless.
  */
 export async function trackerCycle({ limit = 200 } = {}) {
-  // Prioridad: productos con alertas activas > más buscados > más viejos (stale-first).
-  // lastTracked es null para productos nuevos (importados pero no scrapeados aún).
-  // Esto evita el problema de lastScraped (@updatedAt) que se setea en el import.
   const twoHoursAgo = new Date(Date.now() - 2 * 3_600_000);
   const products = await prisma.product.findMany({
-    where: {
-      OR: [
-        { lastTracked: null },
-        { lastTracked: { lt: twoHoursAgo } },
-      ],
-    },
-    orderBy: [
-      { alerts: { _count: "desc" } },
-      { queries: "desc" },
-      { lastTracked: "asc" },
-    ],
+    where: { OR: [{ lastTracked: null }, { lastTracked: { lt: twoHoursAgo } }] },
+    orderBy: [{ alerts: { _count: "desc" } }, { queries: "desc" }, { lastTracked: "asc" }],
     take: limit,
+    select: { id: true, title: true, image: true },
   });
   console.log(`[${new Date().toISOString()}] Tracker: ${products.length} productos`);
 
-  // Separar por tipo
-  const mlaItems = products.filter((p) => /^MLA\d/i.test(p.id));
-  const others = products.filter((p) => !/^MLA\d/i.test(p.id));
-  const playwrightFallback = [];
-
-  // ── FASE 1: batch API para items MLA* ────────────────────────────────────
-  if (mlaItems.length) {
-    console.log(`  API batch: ${mlaItems.length} items MLA*`);
-    const ids = mlaItems.map((p) => p.id);
-    const apiResults = await readItemsBatchFromApi(ids);
-
-    for (const p of mlaItems) {
-      const r = apiResults.get(p.id);
-      if (r?.price) {
-        await savePrice(p, r.price, r.title, r.image, r.cheapestUrl);
-      } else {
-        playwrightFallback.push(p); // no vino precio → Playwright
-      }
-    }
-    console.log(`  API: ${apiResults.size} OK, ${playwrightFallback.length} fallback Playwright`);
+  let ok = 0, skip = 0;
+  for (let i = 0; i < products.length; i += CONCURRENCY) {
+    const batch = products.slice(i, i + CONCURRENCY);
+    const results = await Promise.all(batch.map(refreshProduct));
+    ok += results.filter(Boolean).length;
+    skip += results.filter(r => !r).length;
+    if (i + CONCURRENCY < products.length) await sleep(BATCH_DELAY_MS);
   }
 
-  // ── FASE 2: MLAU* via API (catalog search) ───────────────────────────────
-  for (const p of others) {
-    try {
-      const r = await readProductPriceFromApi(p.id);
-      if (r?.price) {
-        await savePrice(p, r.price, r.title, r.image, r.cheapestUrl);
-      } else {
-        playwrightFallback.push(p);
-      }
-    } catch {
-      playwrightFallback.push(p);
-    }
-  }
-
-  // ── FASE 3: Playwright fallback ──────────────────────────────────────────
-  if (playwrightFallback.length) {
-    console.log(`  Playwright fallback: ${playwrightFallback.length} productos`);
-    let consecutiveBlocks = 0;
-    for (const p of playwrightFallback) {
-      try {
-        const r = await readProductPrice(p.id, p.url ?? undefined);
-        if (r.blocked) {
-          consecutiveBlocks++;
-          const waitMs = BLOCK_SLEEP_MS();
-          console.warn(`  ${p.id} bloqueado (${consecutiveBlocks}/${MAX_CONSECUTIVE_BLOCKS}) — esperando ${(waitMs/1000).toFixed(0)}s`);
-          if (consecutiveBlocks >= MAX_CONSECUTIVE_BLOCKS) {
-            console.warn("  demasiados bloqueos consecutivos, abortando Playwright");
-            break;
-          }
-          await sleep(waitMs);
-          continue;
-        }
-        consecutiveBlocks = 0; // reset tras éxito
-        if (r.price) await savePrice(p, r.price, r.title, r.image);
-      } catch (e) {
-        console.warn(`  ${p.id} error: ${e.message}`);
-      }
-      await sleep(jitter(3000, 7000));
-    }
-  }
-
-  await closeContext();
-  console.log("Ciclo del tracker terminado.");
+  console.log(`Tracker terminado: ${ok} OK, ${skip} sin precio.`);
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
