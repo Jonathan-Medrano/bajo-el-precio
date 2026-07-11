@@ -980,10 +980,15 @@ app.post("/api/link-code", makeRateLimit(10, 60_000), async (req, res) => {
 app.get("/api/link-status/:code", makeRateLimit(10, 60_000), async (req, res) => {
   try {
     const { code } = req.params;
-    const row = await prisma.linkingCode.findUnique({ where: { code } });
+    // Atomic: check + delete in one transaction to avoid double-confirm race.
+    const row = await prisma.$transaction(async (tx) => {
+      const r = await tx.linkingCode.findUnique({ where: { code } });
+      if (!r || r.expiresAt < new Date() || !r.chatId) return r ?? null;
+      await tx.linkingCode.delete({ where: { code } });
+      return r;
+    });
     if (!row || row.expiresAt < new Date()) return res.status(404).json({ linked: false });
     if (!row.chatId) return res.json({ linked: false });
-    await prisma.linkingCode.delete({ where: { code } });
     res.json({ linked: true, chatId: row.chatId, token: signChatId(row.chatId) });
   } catch {
     res.status(500).json({ error: "fallo" });
