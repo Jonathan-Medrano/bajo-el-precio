@@ -18,7 +18,7 @@ export async function onNewPrice(productId, newPrice) {
     const product = await prisma.product.findUnique({
       where: { id: productId },
       include: {
-        prices: { orderBy: { seenAt: "desc" } },
+        prices: { orderBy: { seenAt: "desc" }, take: 2000 },
         alerts: true,
         emailAlerts: true,
       },
@@ -26,7 +26,7 @@ export async function onNewPrice(productId, newPrice) {
     if (!product) return;
 
     const others = product.prices.slice(1).map((p) => p.price); // todos menos el recién creado
-    const prevMin = others.length ? Math.min(...others) : null;
+    const prevMin = others.length ? others.reduce((min, p) => p < min ? p : min, Infinity) : null;
     const isNewLow = prevMin != null && newPrice < prevMin;
     const enoughHistory = others.length >= MIN_HISTORY;
 

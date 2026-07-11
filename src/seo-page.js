@@ -19,7 +19,7 @@ function chartSVG(history) {
   if (prices.length < 2) {
     return `<div class="chart-empty">Todavía estamos juntando historial. Volvé en unas horas.</div>`;
   }
-  const min = Math.min(...prices), max = Math.max(...prices);
+  const min = prices.reduce((m, p) => p < m ? p : m, Infinity), max = prices.reduce((m, p) => p > m ? p : m, -Infinity);
   const span = max - min || 1;
   const x = (i) => PL + (i / (prices.length - 1)) * (W - PL - PR);
   const y = (p) => PT + (1 - (p - min) / span) * (H - PT - PB);

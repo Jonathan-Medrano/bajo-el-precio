@@ -61,7 +61,7 @@ async function imageDataUri(url) {
 
 function sparkline(prices, x, y, w, h) {
   if (!prices || prices.length < 2) return "";
-  const min = Math.min(...prices), max = Math.max(...prices);
+  const min = prices.reduce((m, p) => p < m ? p : m, Infinity), max = prices.reduce((m, p) => p > m ? p : m, -Infinity);
   const span = max - min || 1;
   const pts = prices.map((p, i) => {
     const px = x + (i / (prices.length - 1)) * w;

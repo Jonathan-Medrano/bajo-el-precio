@@ -134,8 +134,8 @@ export async function listAlerts(chatId) {
   return alerts.map((a) => {
     const prices = a.product.prices.map((p) => p.price).reverse();
     const current = prices.at(-1) ?? null;
-    const min = prices.length ? Math.min(...prices) : null;
-    const max = prices.length ? Math.max(...prices) : null;
+    const min = prices.length ? prices.reduce((m, p) => p < m ? p : m, Infinity) : null;
+    const max = prices.length ? prices.reduce((m, p) => p > m ? p : m, -Infinity) : null;
     const avg = prices.length ? Math.round(prices.reduce((s, p) => s + p, 0) / prices.length) : null;
     return {
       id: a.id,
@@ -180,8 +180,8 @@ export async function getHistory(id) {
   const stats = prices.length
     ? {
         count: prices.length,
-        min: Math.min(...prices),
-        max: Math.max(...prices),
+        min: prices.reduce((m, p) => p < m ? p : m, Infinity),
+        max: prices.reduce((m, p) => p > m ? p : m, -Infinity),
         avg: Math.round(prices.reduce((a, b) => a + b, 0) / prices.length),
         last: prices[prices.length - 1],
       }
@@ -238,8 +238,8 @@ function buildIntelligence(prices) {
 /** Puntaje del deal de 1 (pésimo) a 10 (mínimo histórico). */
 function dealScore(prices) {
   if (prices.length < 3) return null;
-  const min = Math.min(...prices);
-  const max = Math.max(...prices);
+  const min = prices.reduce((m, p) => p < m ? p : m, Infinity);
+  const max = prices.reduce((m, p) => p > m ? p : m, -Infinity);
   const current = prices.at(-1);
   const range = max - min;
 

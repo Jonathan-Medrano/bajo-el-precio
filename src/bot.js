@@ -235,7 +235,7 @@ async function handleUpdate(update) {
     let data = await getHistory(productId);
     if (data.error === "not_found") {
       await sendUser(chatId, `🔍 Producto nuevo — buscando precio en MercadoLibre...`);
-      const tracked = await trackProduct(text).catch(() => null);
+      const tracked = await trackProduct(productId).catch(() => null);
       if (!tracked || tracked.error) {
         await sendUser(chatId,
           `❌ No pude obtener el precio de ese producto.\n\n` +

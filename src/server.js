@@ -351,7 +351,7 @@ async function fetchDeals({ category } = {}) {
     const prices = p.prices;
     if (prices.length < 3) continue;
     const current = prices.at(0).price;
-    const min = Math.min(...prices.map((x) => x.price));
+    const min = prices.reduce((m, x) => x.price < m ? x.price : m, Infinity);
     const avg = prices.reduce((s, x) => s + x.price, 0) / prices.length;
     if (current > min * 1.08) continue;
     const savingPct = Math.round(((avg - current) / avg) * 100);
@@ -1474,8 +1474,8 @@ app.get("/api/catalog", makeRateLimit(30, 60_000), async (_req, res) => {
         image: p.image,
         queries: p.queries,
         price: prices.at(-1) ?? null,
-        min: prices.length ? Math.min(...prices) : null,
-        max: prices.length ? Math.max(...prices) : null,
+        min: prices.length ? prices.reduce((m, p) => p < m ? p : m, Infinity) : null,
+        max: prices.length ? prices.reduce((m, p) => p > m ? p : m, -Infinity) : null,
         spark: prices,
       });
     }
