@@ -5,7 +5,10 @@ import { getAppToken } from "./auth.js";
 const B = "https://api.mercadolibre.com";
 
 async function apiGet(path, token) {
-  return fetch(`${B}${path}`, { headers: { Authorization: `Bearer ${token}` } });
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 15_000);
+  return fetch(`${B}${path}`, { headers: { Authorization: `Bearer ${token}` }, signal: ctrl.signal })
+    .finally(() => clearTimeout(timer));
 }
 
 /** Mejor item = más barato entre los nuevos (o cualquier condición si no hay nuevos). */

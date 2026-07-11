@@ -268,6 +268,14 @@ async function handleUpdate(update) {
 }
 
 export async function telegramWebhookHandler(req, res) {
+  const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
+  if (secret) {
+    const incoming = req.header("x-telegram-bot-api-secret-token") ?? "";
+    if (incoming !== secret) {
+      console.warn("[bot] webhook: token inválido, ignorando request");
+      return res.sendStatus(403);
+    }
+  }
   res.sendStatus(200);
   try {
     await handleUpdate(req.body);
