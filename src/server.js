@@ -943,11 +943,13 @@ app.post("/api/email-alert", makeRateLimit(5, 60_000), async (req, res) => {
   if (!email || !productId) return res.status(400).json({ error: "falta email o productId" });
   const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!emailRe.test(email)) return res.status(400).json({ error: "email inválido" });
+  const tp = targetPrice != null ? parseInt(targetPrice, 10) : null;
+  if (tp !== null && (!Number.isFinite(tp) || tp <= 0)) return res.status(400).json({ error: "targetPrice inválido" });
   try {
     await prisma.emailAlert.upsert({
       where: { email_productId: { email: email.toLowerCase(), productId } },
-      update: { targetPrice: targetPrice ? Number(targetPrice) : null },
-      create: { email: email.toLowerCase(), productId, targetPrice: targetPrice ? Number(targetPrice) : null },
+      update: { targetPrice: tp },
+      create: { email: email.toLowerCase(), productId, targetPrice: tp },
     });
     res.json({ ok: true });
   } catch (e) {

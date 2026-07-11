@@ -37,7 +37,10 @@ function handleRateLimitHeaders(headers) {
 async function mlFetch(path) {
   const token = await getAppToken().catch(() => null);
   const headers = token ? { Authorization: `Bearer ${token}` } : {};
-  const res = await fetch(`${ML_API}${path}`, { headers });
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 15_000);
+  const res = await fetch(`${ML_API}${path}`, { headers, signal: ctrl.signal })
+    .finally(() => clearTimeout(timer));
   handleRateLimitHeaders(res.headers);
 
   if (res.status === 429) {
@@ -76,23 +79,51 @@ export function fetchItemsBatch(itemIds) {
 }
 
 /**
- * GET /sites/MLA/search?catalog_product_id={id}&sort=price_asc&limit=1
- * Returns the cheapest active listing for a catalog product (MLAU*).
+ * GET /products/{id}/items?status=active&sort=price_asc&limit=1
+ * Returns the cheapest active listing for a catalog product.
+ * Requires Bearer token. Works from cloud IPs (unlike Search API).
  */
-export function fetchCatalogBestPrice(catalogId) {
-  const site = process.env.ML_SITE ?? "MLA";
-  return queue.add(() =>
-    retry(() =>
-      mlFetch(`/sites/${site}/search?catalog_product_id=${catalogId}&sort=price_asc&limit=1&fields=results.id,results.title,results.price,results.thumbnail,results.permalink`)
-    )
-  );
+export async function fetchCatalogBestPrice(catalogId) {
+  const [meta, items] = await Promise.all([
+    queue.add(() => retry(() => mlFetch(`/products/${catalogId}`))).catch(() => null),
+    queue.add(() => retry(() => mlFetch(`/products/${catalogId}/items?status=active&sort=price_asc&limit=1`))),
+  ]);
+  const best = items?.results?.[0];
+  if (!best?.price) return { results: [] };
+  // Link to the specific cheapest listing, not the catalog page (which shows a different "recommended" item)
+  const itemUrl = best.item_id
+    ? `https://articulo.mercadolibre.com.ar/${best.item_id.replace(/^([A-Z]+)(\d+)$/, "$1-$2")}`
+    : `https://www.mercadolibre.com.ar/p/${catalogId}`;
+  // Use || (not ??) so empty strings fall through to the next source
+  let thumbnail =
+    meta?.pictures?.[0]?.secure_url ||
+    meta?.pictures?.[0]?.url ||
+    best?.secure_thumbnail ||
+    best?.thumbnail ||
+    null;
+  // Deep fallback: fetch full item to get high-res pictures when catalog/item thumbnail is absent
+  if (!thumbnail && best?.item_id) {
+    try {
+      const itemData = await queue.add(() => retry(() => mlFetch(`/items/${best.item_id}`)));
+      thumbnail = itemData?.pictures?.[0]?.secure_url || itemData?.pictures?.[0]?.url || null;
+    } catch { /* skip */ }
+  }
+  return {
+    results: [{
+      id: catalogId,
+      price: best.price,
+      title: meta?.name ?? null,
+      thumbnail,
+      permalink: itemUrl,
+    }],
+  };
 }
 
 export function searchProducts(query, limit = 50) {
   return queue.add(() =>
     retry(() =>
       mlFetch(
-        `/sites/MLA/search?q=${encodeURIComponent(query)}&limit=${limit}&fields=results.id,results.title,results.price,results.thumbnail,results.permalink,results.catalog_product_id`
+        `/sites/MLA/search?q=${encodeURIComponent(query)}&limit=${limit}&fields=results.id,results.title,results.price,results.thumbnail,results.secure_thumbnail,results.permalink,results.catalog_product_id,results.category_id`
       )
     )
   );
