@@ -172,7 +172,7 @@ export async function unsubscribeAlert({ chatId, alertId, productId }) {
 export async function getHistory(id) {
   const product = await prisma.product.findUnique({
     where: { id },
-    include: { prices: { orderBy: { seenAt: "asc" } } },
+    include: { prices: { orderBy: { seenAt: "asc" }, take: 500 } },
   });
   if (!product) return { error: "not_found" };
 

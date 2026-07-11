@@ -1,4 +1,4 @@
-import { listAlerts, unsubscribeAlert, subscribeAlert, getHistory } from "./service.js";
+import { listAlerts, unsubscribeAlert, subscribeAlert, getHistory, trackProduct } from "./service.js";
 import { sendUser } from "./telegram.js";
 import { getPlan, FREE_ALERT_LIMIT } from "./plans.js";
 import { createApiKey } from "./apikeys.js";
@@ -13,8 +13,8 @@ async function processReferral(referrerId, newUserId) {
   try {
     await prisma.referral.create({ data: { referrerId, newUserId } });
     await sendUser(referrerId, `🎉 ¡Un amigo usó tu link de referido! Ganaste +1 alerta extra.`).catch(() => {});
-  } catch {
-    // Unique constraint on newUserId → already referred, silent skip
+  } catch (e) {
+    if (!e.message?.includes("Unique")) console.warn("[bot] referral error:", e.message);
   }
 }
 
@@ -232,15 +232,18 @@ async function handleUpdate(update) {
       return;
     }
     const productId = idMatch[1].toUpperCase();
-    const data = await getHistory(productId);
+    let data = await getHistory(productId);
     if (data.error === "not_found") {
-      await sendUser(chatId,
-        `🔍 <b>Producto no rastreado todavía</b>\n\n` +
-        `ID: <code>${productId}</code>\n\n` +
-        `Todavía no tenemos historial de este producto. Agregalo desde la web para empezar a rastrearlo:\n` +
-        `${PUBLIC_URL}/p/${productId}`
-      );
-      return;
+      await sendUser(chatId, `🔍 Producto nuevo — buscando precio en MercadoLibre...`);
+      const tracked = await trackProduct(text).catch(() => null);
+      if (!tracked || tracked.error) {
+        await sendUser(chatId,
+          `❌ No pude obtener el precio de ese producto.\n\n` +
+          `Intentá desde la web: <a href="${PUBLIC_URL}">${PUBLIC_URL}</a>`
+        );
+        return;
+      }
+      data = tracked;
     }
     const statsLine = data.stats.count
       ? `Precio actual: <b>${fmtArs(data.stats.last)}</b> · Mínimo: ${fmtArs(data.stats.min)} · Máximo: ${fmtArs(data.stats.max)} · ${data.stats.count} registros`
