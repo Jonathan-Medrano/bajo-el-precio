@@ -4,7 +4,7 @@ import { expandUrl } from "./link-expander.js";
 import { readProductPrice, readProductPriceFromApi } from "./ml/price-reader.js";
 import { affiliateUrl } from "./affiliate.js";
 import { onNewPrice } from "./alerts.js";
-import { getPlan } from "./plans.js";
+import { getPlan, FREE_ALERT_LIMIT } from "./plans.js";
 
 /** Resuelve un input (link, link corto, id) al producto. */
 export async function resolveId(input) {
@@ -74,28 +74,47 @@ export async function observeProduct({ id, price, title, image, url, category })
 export async function subscribeAlert({ chatId, productId, targetPrice, title, url, image }) {
   if (!chatId || !productId) return { error: "missing" };
 
-  // Límite del plan: bloquea solo si es una alerta NUEVA y ya llegó al tope.
-  const existing = await prisma.alert.findUnique({
-    where: { chatId_productId: { chatId: String(chatId), productId } },
-  });
-  if (!existing) {
-    const plan = await getPlan(chatId);
-    if (!plan.premium && plan.used >= plan.limit) {
-      return { error: "limit", limit: plan.limit, used: plan.used };
-    }
-  }
+  const cid = String(chatId);
+  const target = Number.isFinite(Number(targetPrice)) && Number(targetPrice) > 0 ? Math.round(Number(targetPrice)) : null;
 
+  // Upsert del producto antes de la transacción (no necesita atomicidad con el alert)
   await prisma.product.upsert({
     where: { id: productId },
     update: { title: title ?? undefined, url: url ?? undefined, image: image ?? undefined },
     create: { id: productId, title: title ?? "Producto", url, image },
   });
-  const target = Number.isFinite(Number(targetPrice)) && Number(targetPrice) > 0 ? Math.round(Number(targetPrice)) : null;
-  const alert = await prisma.alert.upsert({
-    where: { chatId_productId: { chatId: String(chatId), productId } },
-    update: { targetPrice: target, lastNotifiedPrice: null },
-    create: { chatId: String(chatId), productId, targetPrice: target },
+
+  // Transacción atómica: verificar límite + crear alerta sin race condition.
+  // Sin esto, dos requests paralelas podían superar el límite free juntas.
+  // getPlan usa el cliente global de Prisma, no sirve dentro de $transaction —
+  // por eso replicamos la lógica inline usando el cliente tx.
+  const alert = await prisma.$transaction(async (tx) => {
+    const existing = await tx.alert.findUnique({
+      where: { chatId_productId: { chatId: cid, productId } },
+    });
+    if (!existing) {
+      const [sub, used, referrals] = await Promise.all([
+        tx.subscriber.findUnique({ where: { chatId: cid } }),
+        tx.alert.count({ where: { chatId: cid } }),
+        tx.referral.count({ where: { referrerId: cid } }),
+      ]);
+      const premium = sub?.plan === "premium" && (!sub.premiumUntil || sub.premiumUntil > new Date());
+      const limit = premium ? Infinity : FREE_ALERT_LIMIT + referrals;
+      if (!premium && used >= limit) {
+        throw Object.assign(new Error("limit"), { limitError: true, limit: FREE_ALERT_LIMIT + referrals, used });
+      }
+    }
+    return tx.alert.upsert({
+      where: { chatId_productId: { chatId: cid, productId } },
+      update: { targetPrice: target, lastNotifiedPrice: null },
+      create: { chatId: cid, productId, targetPrice: target },
+    });
+  }).catch((e) => {
+    if (e.limitError) return e;
+    throw e;
   });
+
+  if (alert.limitError) return { error: "limit", limit: alert.limit, used: alert.used };
   return { ok: true, alert };
 }
 

@@ -76,7 +76,7 @@ export async function sendPriceDropEmail({ to, productTitle, currentPrice, targe
       console.error("[email] error:", JSON.stringify(data));
       return false;
     }
-    console.log("[email] enviado a", to, "id:", data.id);
+    console.log("[email] enviado id:", data.id);
     return true;
   } catch (e) {
     console.error("[email] fetch error:", e.message);

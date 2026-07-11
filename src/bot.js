@@ -6,6 +6,8 @@ import { prisma } from "./db.js";
 
 const PUBLIC_URL = process.env.PUBLIC_URL || "http://localhost:3000";
 
+const escHtml = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
 async function processReferral(referrerId, newUserId) {
   try {
     await prisma.referral.create({ data: { referrerId, newUserId } });
@@ -69,7 +71,7 @@ async function handleUpdate(update) {
       const targetMsg = targetPrice ? `cuando baje de $${targetPrice.toLocaleString("es-AR")}` : "cuando llegue a su mínimo histórico";
       await sendUser(chatId,
         `👀 <b>Siguiendo producto</b>\n\n` +
-        `📦 ${title.slice(0, 80)}\n` +
+        `📦 ${escHtml(title.slice(0, 80))}\n` +
         `🔔 Te aviso ${targetMsg}\n\n` +
         `👉 <a href="${PUBLIC_URL}/p/${productId}">Ver historial</a>`
       );
