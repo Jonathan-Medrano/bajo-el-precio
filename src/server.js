@@ -169,7 +169,14 @@ function buildConsentScript(pixelId) {
 })();`;
 }
 
-app.get("/api/health", (_req, res) => res.json({ ok: true, service: "keepa-ml" }));
+app.get("/api/health", async (_req, res) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    res.json({ ok: true, service: "keepa-ml", db: "ok" });
+  } catch {
+    res.status(503).json({ ok: false, service: "keepa-ml", db: "error" });
+  }
+});
 
 // Stats globales para el contador del hero de la landing.
 app.get("/api/stats", async (_req, res) => {

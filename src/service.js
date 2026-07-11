@@ -88,10 +88,11 @@ export async function subscribeAlert({ chatId, productId, targetPrice, title, ur
   // Sin esto, dos requests paralelas podían superar el límite free juntas.
   // getPlan usa el cliente global de Prisma, no sirve dentro de $transaction —
   // por eso replicamos la lógica inline usando el cliente tx.
-  const alert = await prisma.$transaction(async (tx) => {
+  const txResult = await prisma.$transaction(async (tx) => {
     const existing = await tx.alert.findUnique({
       where: { chatId_productId: { chatId: cid, productId } },
     });
+    const isNew = !existing;
     if (!existing) {
       const [sub, used, referrals] = await Promise.all([
         tx.subscriber.findUnique({ where: { chatId: cid } }),
@@ -104,18 +105,19 @@ export async function subscribeAlert({ chatId, productId, targetPrice, title, ur
         throw Object.assign(new Error("limit"), { limitError: true, limit: FREE_ALERT_LIMIT + referrals, used });
       }
     }
-    return tx.alert.upsert({
+    const alert = await tx.alert.upsert({
       where: { chatId_productId: { chatId: cid, productId } },
       update: { targetPrice: target, lastNotifiedPrice: null },
       create: { chatId: cid, productId, targetPrice: target },
     });
+    return { alert, created: isNew };
   }).catch((e) => {
     if (e.limitError) return e;
     throw e;
   });
 
-  if (alert.limitError) return { error: "limit", limit: alert.limit, used: alert.used };
-  return { ok: true, alert };
+  if (txResult.limitError) return { error: "limit", limit: txResult.limit, used: txResult.used };
+  return { ok: true, alert: txResult.alert, created: txResult.created };
 }
 
 /** Lista las alertas de un usuario con historial completo (para el dashboard). */

@@ -1,12 +1,13 @@
 import { listAlerts, unsubscribeAlert, subscribeAlert, getHistory } from "./service.js";
 import { sendUser } from "./telegram.js";
-import { getPlan } from "./plans.js";
-import { createPaymentPreference } from "./mercadopago.js";
+import { getPlan, FREE_ALERT_LIMIT } from "./plans.js";
+import { createPaymentPreference, PLANS } from "./mercadopago.js";
 import { prisma } from "./db.js";
 
 const PUBLIC_URL = process.env.PUBLIC_URL || "http://localhost:3000";
 
 const escHtml = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const fmtArs = (n) => "$" + Number(n).toLocaleString("es-AR");
 
 async function processReferral(referrerId, newUserId) {
   try {
@@ -44,7 +45,9 @@ async function handleUpdate(update) {
           );
           return;
         }
-      } catch {}
+      } catch (e) {
+        console.error("[bot] link error:", e.message);
+      }
       await sendUser(chatId, `⚠️ El código expiró o ya fue usado. Volvé a la web para generar uno nuevo.`);
       return;
     }
@@ -62,13 +65,13 @@ async function handleUpdate(update) {
       if (result.error === "limit") {
         await sendUser(chatId,
           `⚠️ Llegaste al límite de alertas (${result.used}/${result.limit}).\n\n` +
-          `Borrá una con /mis_alertas o esperá el mes que viene.`
+          `Borrá una con /mis_alertas o activá /premium para tener alertas ilimitadas.`
         );
         return;
       }
       const data = await getHistory(productId);
       const title = data.product?.title ?? productId;
-      const targetMsg = targetPrice ? `cuando baje de $${targetPrice.toLocaleString("es-AR")}` : "cuando llegue a su mínimo histórico";
+      const targetMsg = targetPrice ? `cuando baje de ${fmtArs(targetPrice)}` : "cuando llegue a su mínimo histórico";
       await sendUser(chatId,
         `👀 <b>Siguiendo producto</b>\n\n` +
         `📦 ${escHtml(title.slice(0, 80))}\n` +
@@ -91,7 +94,9 @@ async function handleUpdate(update) {
       chatId,
       `📉 <b>Bajó el Precio</b> — historial real de precios de MercadoLibre.\n\n` +
       `<b>Comandos:</b>\n` +
-      `• /mis_alertas — ver tus alertas activas\n` +
+      `• /mis_alertas — tus alertas activas\n` +
+      `• /plan — tu plan y uso de alertas\n` +
+      `• /premium — activar plan sin límites\n` +
       `• /borrar &lt;ID&gt; — eliminar una alerta\n\n` +
       `🌐 Buscá cualquier producto en <a href="${PUBLIC_URL}">${PUBLIC_URL}</a>\n\n` +
       `💌 <b>Referí amigos:</b> +1 alerta extra por cada uno\n` +
@@ -107,21 +112,72 @@ async function handleUpdate(update) {
       return;
     }
     const lines = alerts.map((a, i) => {
-      const price = a.currentPrice ? `$${Number(a.currentPrice).toLocaleString("es-AR")}` : "–";
-      const target = a.targetPrice ? `$${Number(a.targetPrice).toLocaleString("es-AR")}` : "cualquier baja";
-      return `${i + 1}. <b>${a.title.slice(0, 50)}</b>\n   Precio actual: ${price} · objetivo: ${target}\n   ID: <code>${a.id}</code>`;
+      const price = a.currentPrice ? fmtArs(a.currentPrice) : "–";
+      const target = a.targetPrice ? fmtArs(a.targetPrice) : "cualquier baja";
+      return `${i + 1}. <b>${escHtml(a.title.slice(0, 50))}</b>\n   Ahora: ${price} · Objetivo: ${target}\n   ID: <code>${a.id}</code>`;
     });
-    await sendUser(
-      chatId,
-      `🔔 <b>Tus alertas activas</b> (${alerts.length}):\n\n` +
-      lines.join("\n\n") +
-      `\n\nPara borrar: /borrar <ID>`
-    );
+    // Telegram cap is 4096 chars — send in chunks of 15 to stay safe
+    const CHUNK = 15;
+    for (let i = 0; i < lines.length; i += CHUNK) {
+      const chunk = lines.slice(i, i + CHUNK);
+      const header = i === 0 ? `🔔 <b>Tus alertas activas</b> (${alerts.length}):\n\n` : "";
+      const footer = i + CHUNK >= lines.length ? `\n\nPara borrar: /borrar &lt;ID&gt;` : "";
+      await sendUser(chatId, header + chunk.join("\n\n") + footer);
+    }
+    return;
+  }
+
+  if (cmd === "/plan") {
+    const p = await getPlan(chatId);
+    if (p.premium) {
+      const sub = await prisma.subscriber.findUnique({ where: { chatId } });
+      const exp = sub?.premiumUntil
+        ? ` (hasta el ${new Date(sub.premiumUntil).toLocaleDateString("es-AR")})`
+        : " (sin vencimiento)";
+      await sendUser(chatId,
+        `⭐ <b>Plan: Premium</b>${escHtml(exp)}\n\n` +
+        `Tenés alertas ilimitadas activas. ¡Gracias por apoyar el proyecto!`
+      );
+    } else {
+      const referrals = p.limit - FREE_ALERT_LIMIT;
+      await sendUser(chatId,
+        `🆓 <b>Plan: Free</b>\n\n` +
+        `Alertas usadas: <b>${p.used}/${p.limit}</b>\n` +
+        `Referidos: ${referrals}\n\n` +
+        `Con /premium accedés a alertas ilimitadas.\n` +
+        `O referí amigos para ganar +1 alerta extra por cada uno.`
+      );
+    }
     return;
   }
 
   if (cmd === "/premium") {
-    await sendUser(chatId, `ℹ️ Los planes de pago estarán disponibles próximamente.`);
+    const p = await getPlan(chatId);
+    if (p.premium) {
+      const sub = await prisma.subscriber.findUnique({ where: { chatId } });
+      const exp = sub?.premiumUntil
+        ? ` (vence el ${new Date(sub.premiumUntil).toLocaleDateString("es-AR")})`
+        : "";
+      await sendUser(chatId,
+        `⭐ <b>Ya sos Premium</b>${escHtml(exp)}\n\nTenés alertas ilimitadas activas. ¡Gracias!`
+      );
+      return;
+    }
+    try {
+      const { initPoint, plan } = await createPaymentPreference(chatId, 0);
+      await sendUser(chatId,
+        `⭐ <b>Bajó el Precio Premium</b>\n\n` +
+        `Con el plan Premium obtenés:\n` +
+        `• Alertas de precio <b>ilimitadas</b> (ahora: ${p.used}/${p.limit})\n` +
+        `• Notificaciones más rápidas\n` +
+        `• Sin restricciones\n\n` +
+        `💳 <b>${escHtml(plan.label)}</b> — ${fmtArs(plan.amount)}/mes\n\n` +
+        `👉 <a href="${initPoint}">Activar Premium ahora</a>`
+      );
+    } catch (e) {
+      console.error("[bot] premium link error:", e.message);
+      await sendUser(chatId, "❌ No se pudo generar el link de pago. Intentá de nuevo en unos minutos.");
+    }
     return;
   }
 
@@ -131,8 +187,13 @@ async function handleUpdate(update) {
       await sendUser(chatId, "Uso: /borrar &lt;ID de la alerta&gt;\n\nVer IDs con /mis_alertas");
       return;
     }
+    const parsed = parseInt(alertId, 10);
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      await sendUser(chatId, "❌ ID inválido. Usá el número que aparece en /mis_alertas");
+      return;
+    }
     try {
-      const r = await unsubscribeAlert({ chatId, alertId: Number(alertId) });
+      const r = await unsubscribeAlert({ chatId, alertId: parsed });
       if (r.ok) {
         await sendUser(chatId, "✅ Alerta eliminada.");
       } else {
@@ -144,7 +205,7 @@ async function handleUpdate(update) {
     return;
   }
 
-  // Handle MercadoLibre URLs sent directly to the bot
+  // Handle MercadoLibre URLs or IDs sent directly to the bot
   const mlUrlMatch = text.match(/mercadolibre\.com\.ar\/[^\s]+(?:MLA\d+|MLAU[\w]+)/i)
     || text.match(/(MLA[U]?\d+)/i);
   if (mlUrlMatch) {
@@ -164,21 +225,20 @@ async function handleUpdate(update) {
       );
       return;
     }
-    const fmt = (n) => "$" + Number(n).toLocaleString("es-AR");
     const statsLine = data.stats.count
-      ? `Precio actual: <b>${fmt(data.stats.last)}</b> · Mínimo: ${fmt(data.stats.min)} · Máximo: ${fmt(data.stats.max)} · ${data.stats.count} registros`
+      ? `Precio actual: <b>${fmtArs(data.stats.last)}</b> · Mínimo: ${fmtArs(data.stats.min)} · Máximo: ${fmtArs(data.stats.max)} · ${data.stats.count} registros`
       : "Juntando historial…";
     const result = await subscribeAlert({ chatId, productId });
     let alertLine;
     if (result.error === "limit") {
-      alertLine = `\n\n⚠️ No se pudo activar la alerta. Intentá de nuevo.`;
+      alertLine = `\n\n⚠️ Llegaste al límite de alertas (${result.used}/${result.limit}). Activá /premium para más.`;
     } else if (result.created) {
       alertLine = `\n\n🔔 <b>Alerta activada.</b> Te aviso cuando baje de precio.`;
     } else {
-      alertLine = `\n\nYa tenías una alerta para este producto.`;
+      alertLine = `\n\n✅ Ya tenías una alerta para este producto.`;
     }
     await sendUser(chatId,
-      `📦 <b>${data.product.title.slice(0, 80)}</b>\n\n` +
+      `📦 <b>${escHtml(data.product.title.slice(0, 80))}</b>\n\n` +
       statsLine +
       `\n\n🌐 <a href="${PUBLIC_URL}/p/${productId}">Ver historial completo</a>` +
       alertLine
