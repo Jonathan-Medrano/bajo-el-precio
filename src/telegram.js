@@ -13,14 +13,21 @@ export function alertsEnabled() {
 
 async function call(method, payload) {
   if (!TOKEN) throw new Error("falta TELEGRAM_BOT_TOKEN");
-  const res = await fetch(`${API}/bot${TOKEN}/${method}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  const data = await res.json();
-  if (!data.ok) throw new Error(`Telegram ${method}: ${data.error_code} ${data.description}`);
-  return data.result;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 10_000);
+  try {
+    const res = await fetch(`${API}/bot${TOKEN}/${method}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: ctrl.signal,
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(`Telegram ${method}: ${data.error_code} ${data.description}`);
+    return data.result;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /** Postea al canal público (broadcast). */

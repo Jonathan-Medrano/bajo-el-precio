@@ -13,6 +13,7 @@ function emailCreds() {
 }
 
 const fmt = (n) => "$" + Math.round(n).toLocaleString("es-AR");
+const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 /**
  * Send a price-drop notification email.
@@ -22,7 +23,7 @@ export async function sendPriceDropEmail({ to, productTitle, currentPrice, targe
   const c = emailCreds();
   if (!c) { console.warn("[email] RESEND_API_KEY faltante, skip"); return false; }
 
-  const subject = `📉 Bajó el precio: ${productTitle.slice(0, 60)}`;
+  const subject = `📉 Bajó el precio: ${productTitle.slice(0, 60).replace(/[<>&]/g, "")}`;
   const objetivo = targetPrice ? `<p style="margin:0 0 16px">Tu objetivo era <strong>${fmt(targetPrice)}</strong> — ¡ya está por debajo!</p>` : "";
 
   const html = `<!DOCTYPE html>
@@ -38,7 +39,7 @@ export async function sendPriceDropEmail({ to, productTitle, currentPrice, targe
     <tr>
       <td style="padding:24px">
         <p style="margin:0 0 8px;font-size:13px;color:#6b7280;text-transform:uppercase;letter-spacing:.05em">Alerta de precio</p>
-        <p style="margin:0 0 16px;font-size:17px;font-weight:600;line-height:1.4">${productTitle}</p>
+        <p style="margin:0 0 16px;font-size:17px;font-weight:600;line-height:1.4">${esc(productTitle)}</p>
         <table cellpadding="0" cellspacing="0" style="margin:0 0 20px;background:#dcfce7;border-radius:8px;padding:14px 18px;width:100%">
           <tr>
             <td>
@@ -66,11 +67,14 @@ export async function sendPriceDropEmail({ to, productTitle, currentPrice, targe
 </html>`;
 
   try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 10_000);
     const res = await fetch(RESEND_API, {
       method: "POST",
       headers: { Authorization: `Bearer ${c.key}`, "Content-Type": "application/json" },
       body: JSON.stringify({ from: c.from, to: [to], subject, html }),
-    });
+      signal: ctrl.signal,
+    }).finally(() => clearTimeout(timer));
     const data = await res.json();
     if (!res.ok || data.statusCode >= 400) {
       console.error("[email] error:", JSON.stringify(data));
