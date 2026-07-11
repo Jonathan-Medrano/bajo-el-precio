@@ -36,14 +36,43 @@ async function handleUpdate(update) {
         });
         if (updated.count > 0) {
           await sendUser(chatId,
-            `✅ <b>¡Cuenta vinculada!</b>\n\n` +
-            `Ya podés activar alertas de precio desde la web sin ingresar tu ID.\n\n` +
+            `✅ <b>¡Todo listo!</b>\n\n` +
+            `Tu cuenta está conectada. Ahora podés activar alertas de precio desde la web con un click.\n\n` +
             `🌐 <a href="${PUBLIC_URL}">${PUBLIC_URL}</a>`
           );
           return;
         }
       } catch {}
       await sendUser(chatId, `⚠️ El código expiró o ya fue usado. Volvé a la web para generar uno nuevo.`);
+      return;
+    }
+
+    // Alerta directa desde la web: /start track_PRODUCTID o track_PRODUCTID_PRICE
+    if (startPayload?.startsWith("track_")) {
+      const parts = startPayload.slice(6).split("_");
+      const productId = parts[0]?.toUpperCase();
+      const targetPrice = parts[1] ? parseInt(parts[1], 10) : null;
+      if (!productId) {
+        await sendUser(chatId, "❌ Link inválido. Volvé a la web y tocá el botón de alerta.");
+        return;
+      }
+      const result = await subscribeAlert({ chatId, productId, targetPrice: targetPrice || null });
+      if (result.error === "limit") {
+        await sendUser(chatId,
+          `⚠️ Llegaste al límite de alertas (${result.used}/${result.limit}).\n\n` +
+          `Borrá una con /mis_alertas o esperá el mes que viene.`
+        );
+        return;
+      }
+      const data = await getHistory(productId);
+      const title = data.product?.title ?? productId;
+      const targetMsg = targetPrice ? `cuando baje de $${targetPrice.toLocaleString("es-AR")}` : "cuando llegue a su mínimo histórico";
+      await sendUser(chatId,
+        `👀 <b>Siguiendo producto</b>\n\n` +
+        `📦 ${title.slice(0, 80)}\n` +
+        `🔔 Te aviso ${targetMsg}\n\n` +
+        `👉 <a href="${PUBLIC_URL}/p/${productId}">Ver historial</a>`
+      );
       return;
     }
 
