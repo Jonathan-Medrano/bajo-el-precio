@@ -321,6 +321,14 @@ footer{max-width:960px;margin:0 auto;padding:32px 24px;border-top:1px solid var(
   .modal h3{font-size:17px}
   .link-code{font-size:28px;letter-spacing:6px}
 }
+.trend-badge{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:8px;font-size:12px;font-weight:700;margin-top:8px}
+.trend-bajando{background:#dcfce7;color:#15803d}
+.trend-subiendo{background:#fee2e2;color:#b91c1c}
+.cuotas-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px 20px;margin-bottom:16px;box-shadow:var(--shadow)}
+.cuotas-inner{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:8px}
+.cuotas-amount{font-size:22px;font-weight:800;color:#16a34a;letter-spacing:-.02em}
+.cuotas-detail{font-size:13px;color:var(--text-soft);line-height:1.5}
+.cuotas-badge{background:#dcfce7;color:#15803d;font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px}
 ${THEME_CSS}
 </style>
 </head>
@@ -346,10 +354,14 @@ ${buildNav({ active: null, baseUrl: appUrl })}
           <span class="product-current">${fmt(stats.last)}</span>
           ${priceDiffHtml}
         </div>
-        ${score != null ? `<div class="score-chip" style="background:${scoreColor(score)}22;color:${scoreColor(score)}">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
-          Deal Score: ${score}/10
-        </div>` : ""}
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px">
+          ${score != null ? `<div class="score-chip" style="background:${scoreColor(score)}22;color:${scoreColor(score)};margin-top:0">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
+            Deal Score: ${score}/10
+          </div>` : ""}
+          ${intelligence?.trend === "bajando" ? `<span class="trend-badge trend-bajando">↓ Precio bajando</span>` : ""}
+          ${intelligence?.trend === "subiendo" ? `<span class="trend-badge trend-subiendo">↑ Precio subiendo</span>` : ""}
+        </div>
         <p class="product-meta">
           Seguido desde ${product.firstSeen ? new Date(product.firstSeen).toLocaleDateString("es-AR") : "hoy"} ·
           ${stats.count} ${stats.count === 1 ? "registro" : "registros"} de precio ·
@@ -375,6 +387,13 @@ ${buildNav({ active: null, baseUrl: appUrl })}
     <button class="btn btn-alert" id="alert-btn">
       🔔 Alertarme cuando baje
     </button>
+  </div>
+
+  <div id="cuotas-wrap" style="display:none" aria-live="polite">
+    <div class="cuotas-card">
+      <div class="section-label">Mejor precio en cuotas sin interés</div>
+      <div class="cuotas-inner" id="cuotas-content"></div>
+    </div>
   </div>
 
   ${shareHtml}
@@ -542,6 +561,34 @@ ${buildNav({ active: null, baseUrl: appUrl })}
 </script>
 <script src="/theme.js"></script>
 <script src="/consent.js" defer></script>
+<script>
+// Cuotas sin interés — carga lazy para no bloquear el render principal
+(function(){
+  var id='${esc(product.id)}';
+  setTimeout(function(){
+    fetch('/api/compare/'+id+'?view=sinInteres')
+      .then(function(r){return r.ok?r.json():null})
+      .catch(function(){return null})
+      .then(function(data){
+        if(!data||!data.selected||!data.selected.cuotas) return;
+        var c=data.selected.cuotas;
+        if(!c.sinInteres||c.count<3) return;
+        var wrap=document.getElementById('cuotas-wrap');
+        var box=document.getElementById('cuotas-content');
+        if(!wrap||!box) return;
+        var fmtN=function(n){return '$'+Math.round(n).toLocaleString('es-AR');};
+        box.innerHTML=
+          '<div class="cuotas-amount">'+fmtN(c.amount)+'/cuota</div>'+
+          '<div class="cuotas-detail">'+
+            '<span class="cuotas-badge">'+c.count+'x sin interés</span><br>'+
+            'Total: '+fmtN(c.total)+
+            (data.selected.title?'<br><span style="color:var(--text-xsoft);font-size:12px">'+data.selected.title.slice(0,60)+'</span>':'')+
+          '</div>';
+        wrap.style.display='';
+      });
+  }, 1500); // espera 1.5s para no competir con el LCP
+})();
+</script>
 </body>
 </html>`;
 }

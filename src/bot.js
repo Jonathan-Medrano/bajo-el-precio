@@ -1,6 +1,7 @@
 import { listAlerts, unsubscribeAlert, subscribeAlert, getHistory } from "./service.js";
 import { sendUser } from "./telegram.js";
 import { getPlan, FREE_ALERT_LIMIT } from "./plans.js";
+import { createApiKey } from "./apikeys.js";
 import { prisma } from "./db.js";
 
 const PUBLIC_URL = process.env.PUBLIC_URL || "http://localhost:3000";
@@ -96,6 +97,7 @@ async function handleUpdate(update) {
       `• /mis_alertas — tus alertas activas\n` +
       `• /plan — tu plan y uso de alertas\n` +
       `• /premium — activar plan sin límites\n` +
+      `• /apikey — obtener tu API key gratuita\n` +
       `• /borrar &lt;ID&gt; — eliminar una alerta\n\n` +
       `🌐 Buscá cualquier producto en <a href="${PUBLIC_URL}">${PUBLIC_URL}</a>\n\n` +
       `💌 <b>Referí amigos:</b> +1 alerta extra por cada uno\n` +
@@ -167,6 +169,32 @@ async function handleUpdate(update) {
       `Alertas ilimitadas, notificaciones más rápidas y sin restricciones.\n\n` +
       `⏳ Los planes de pago estarán disponibles próximamente. ¡Gracias por la paciencia!`
     );
+    return;
+  }
+
+  if (cmd === "/apikey") {
+    try {
+      const existing = await prisma.apiKey.findFirst({ where: { name: `tg:${chatId}`, active: true } });
+      if (existing) {
+        await sendUser(chatId,
+          `🔑 <b>Tu API key</b>\n\n` +
+          `<code>${existing.key}</code>\n\n` +
+          `Plan: ${existing.plan} · ${existing.dailyQuota.toLocaleString("es-AR")} req/día\n\n` +
+          `📄 <a href="${PUBLIC_URL}/developers">Documentación</a>`
+        );
+      } else {
+        const keyData = await createApiKey({ name: `tg:${chatId}`, plan: "free" });
+        await sendUser(chatId,
+          `🔑 <b>Tu API key gratuita</b>\n\n` +
+          `<code>${keyData.key}</code>\n\n` +
+          `100 requests/día · historial completo · sin tarjeta de crédito\n\n` +
+          `📄 <a href="${PUBLIC_URL}/developers">Ver documentación y endpoints</a>`
+        );
+      }
+    } catch (e) {
+      console.error("[bot] apikey error:", e.message);
+      await sendUser(chatId, "❌ No pude generar la API key. Intentá de nuevo.");
+    }
     return;
   }
 
