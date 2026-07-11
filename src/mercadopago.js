@@ -38,7 +38,10 @@ function daysFromAmount(amountCents) {
 }
 
 function verifySignature(req) {
-  if (!MP_WEBHOOK_SECRET) return true; // sin secreto configurado, skip verificación
+  if (!MP_WEBHOOK_SECRET) {
+    console.error("[mp-webhook] MP_WEBHOOK_SECRET no configurado — rechazando request");
+    return false;
+  }
   const sig = req.headers["x-signature"];
   const reqId = req.headers["x-request-id"] ?? "";
   if (!sig) return false;
@@ -49,7 +52,8 @@ function verifySignature(req) {
   const body = req.rawBody ?? JSON.stringify(req.body);
   const manifest = `id:${req.body?.data?.id ?? ""};request-id:${reqId};ts:${ts};`;
   const expected = crypto.createHmac("sha256", MP_WEBHOOK_SECRET).update(manifest).digest("hex");
-  return expected === hash;
+  if (expected.length !== hash.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(hash));
 }
 
 async function getPayment(paymentId) {

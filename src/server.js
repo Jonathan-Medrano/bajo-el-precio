@@ -83,6 +83,7 @@ function cached(key, ttlMs, fn) {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const app = express();
+app.set("trust proxy", 1); // Fly.io proxy — necesario para que req.ip sea la IP real del cliente
 app.use(compression());
 // Preservar rawBody para verificación de firma HMAC (MercadoPago webhook)
 app.use(express.json({
@@ -884,8 +885,8 @@ app.post("/api/observe", makeRateLimit(30, 60_000), async (req, res) => {
   }
 });
 
-// Alertas: el bot de Telegram registra/lista/borra suscripciones de baja de precio.
-app.post("/api/alerts", makeRateLimit(30, 60_000), async (req, res) => {
+// Alertas: requiere auth para evitar que un atacante agote el límite de alertas de otro usuario.
+app.post("/api/alerts", makeRateLimit(30, 60_000), requireChatAuth, async (req, res) => {
   try {
     res.json(await subscribeAlert(req.body ?? {}));
   } catch (e) {
@@ -943,7 +944,8 @@ app.post("/api/link-code", makeRateLimit(10, 60_000), async (req, res) => {
 });
 
 // Polling del modal: cuando el bot confirme el código, devuelve el chatId y borra el registro.
-app.get("/api/link-status/:code", async (req, res) => {
+// Rate limit estricto: el código es de 6 dígitos (~900k combinaciones) — sin límite sería brute-forceable.
+app.get("/api/link-status/:code", makeRateLimit(10, 60_000), async (req, res) => {
   try {
     const { code } = req.params;
     const row = await prisma.linkingCode.findUnique({ where: { code } });
