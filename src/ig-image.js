@@ -41,8 +41,11 @@ function wrapText(text, maxCharsPerLine = 28, maxLines = 2) {
   return lines;
 }
 
+const MLSTATIC_RE = /^https:\/\/([a-z0-9-]+\.)?mlstatic\.com\//i;
+
 async function imageDataUri(url) {
   if (!url) return null;
+  if (!MLSTATIC_RE.test(url)) return null;
   const jpg = url.replace(/\.webp(\?.*)?$/i, ".jpg");
   try {
     const res = await fetch(jpg, { signal: AbortSignal.timeout(8000) });

@@ -35,11 +35,20 @@ function requireAdmin(req, res, next) {
   next();
 }
 
-// Session tokens: HMAC-SHA256(chatId, ADMIN_TOKEN) issued at link time.
+// Session tokens: HMAC-SHA256(chatId, SESSION_SECRET) issued at link time.
 // Stateless — no DB needed. Clients store the token and send it as x-chat-token.
-const SESSION_SECRET = process.env.SESSION_SECRET || ADMIN_TOKEN || "dev-secret-change-me";
+const SESSION_SECRET = process.env.SESSION_SECRET;
+if (!SESSION_SECRET) {
+  if (process.env.NODE_ENV === "production") {
+    console.error("[startup] FATAL: SESSION_SECRET no configurado — abortando");
+    process.exit(1);
+  } else {
+    console.warn("[startup] SESSION_SECRET no configurado — usando fallback de desarrollo");
+  }
+}
+const _sessionSecret = SESSION_SECRET || "dev-secret-change-me";
 function signChatId(chatId) {
-  return createHmac("sha256", SESSION_SECRET).update(String(chatId)).digest("hex");
+  return createHmac("sha256", _sessionSecret).update(String(chatId)).digest("hex");
 }
 function requireChatAuth(req, res, next) {
   const chatId = req.params.chatId ?? req.body?.chatId;
@@ -49,6 +58,7 @@ function requireChatAuth(req, res, next) {
   if (token.length !== expected.length || !timingSafeEqual(Buffer.from(token), Buffer.from(expected))) {
     return res.status(403).json({ error: "token inválido" });
   }
+  req.verifiedChatId = String(chatId);
   next();
 }
 
@@ -97,6 +107,14 @@ app.use((req, res, next) => {
   res.header("Access-Control-Allow-Headers", "Content-Type, x-chat-token, x-admin-token");
   res.header("Access-Control-Allow-Methods", "GET,POST,DELETE,OPTIONS");
   if (req.method === "OPTIONS") return res.sendStatus(200);
+  next();
+});
+
+// Security headers — basic hardening without helmet dependency.
+app.use((_req, res, next) => {
+  res.set("X-Content-Type-Options", "nosniff");
+  res.set("X-Frame-Options", "DENY");
+  res.set("Referrer-Policy", "strict-origin-when-cross-origin");
   next();
 });
 
@@ -171,7 +189,7 @@ app.get("/dashboard", (_req, res) => {
 // --- Imagen social (Open Graph / Twitter card) por producto -------------------
 // Card 1200x630 con foto + precio + bajada + gráfico. Es la base del funnel de Twitter:
 // sirve de twitter:image del enlace Y como imagen nativa a adjuntar en el tweet.
-app.get("/og/:id.png", async (req, res) => {
+app.get("/og/:id.png", makeRateLimit(20, 60_000), async (req, res) => {
   try {
     const png = await renderOgImage(req.params.id);
     if (!png) return res.status(404).send("no encontrado");
@@ -186,7 +204,7 @@ app.get("/og/:id.png", async (req, res) => {
 
 // --- Imagen Instagram 1080x1080 cuadrada por producto -------------------------
 // Formato cuadrado optimizado para feed de Instagram y carousel ads.
-app.get("/og-ig/:id.png", async (req, res) => {
+app.get("/og-ig/:id.png", makeRateLimit(20, 60_000), async (req, res) => {
   try {
     const png = await renderIgImage(req.params.id);
     if (!png) return res.status(404).send("no encontrado");
@@ -861,7 +879,7 @@ app.post("/api/track", makeRateLimit(10, 60_000), async (req, res) => {
 });
 
 // Historial de un producto ya trackeado.
-app.get("/api/product/:id", async (req, res) => {
+app.get("/api/product/:id", makeRateLimit(60, 60_000), async (req, res) => {
   res.json(await getHistory(req.params.id));
 });
 
@@ -877,8 +895,10 @@ app.post("/api/observe", makeRateLimit(30, 60_000), async (req, res) => {
   if (!Number.isFinite(parsedPrice) || parsedPrice <= 0) return res.status(400).json({ error: "precio inválido" });
   if (url && !ML_URL_RE.test(String(url))) return res.status(400).json({ error: "url inválida" });
   if (image && !ML_IMAGE_RE.test(String(image))) return res.status(400).json({ error: "imagen inválida" });
+  const safeTitle = title != null ? String(title).slice(0, 200) : undefined;
+  const safeCategory = category != null ? String(category).slice(0, 100) : undefined;
   try {
-    res.json(await observeProduct({ id, price: parsedPrice, title, image: image || undefined, url: url || undefined, category }));
+    res.json(await observeProduct({ id, price: parsedPrice, title: safeTitle, image: image || undefined, url: url || undefined, category: safeCategory }));
   } catch (e) {
     console.error("observe error:", e.message);
     res.status(500).json({ error: "fallo" });
@@ -898,8 +918,13 @@ app.get("/api/alerts/:chatId", makeRateLimit(30, 60_000), requireChatAuth, async
   res.json(await listAlerts(req.params.chatId));
 });
 app.delete("/api/alerts", makeRateLimit(20, 60_000), requireChatAuth, async (req, res) => {
+  const { alertId, productId } = req.body ?? {};
+  if (alertId !== undefined) {
+    const parsed = parseInt(alertId, 10);
+    if (!Number.isInteger(parsed) || parsed <= 0) return res.status(400).json({ error: "alertId inválido" });
+  }
   try {
-    res.json(await unsubscribeAlert(req.body ?? {}));
+    res.json(await unsubscribeAlert({ chatId: req.verifiedChatId, alertId, productId }));
   } catch (e) {
     res.status(500).json({ error: "fallo" });
   }
@@ -1391,7 +1416,7 @@ app.get("/v1/products", apiKeyMiddleware, async (_req, res) => {
 });
 
 // Comparación: busca el MÁS BARATO equivalente en ML, con filtros (como el bot de Telegram).
-app.get("/api/compare/:id", async (req, res) => {
+app.get("/api/compare/:id", makeRateLimit(5, 60_000), async (req, res) => {
   const product = await prisma.product.findUnique({ where: { id: req.params.id }, select: { title: true } });
   if (!product) return res.status(404).json({ error: "not_found" });
   const { mode = "estricto", condition = "nuevo", international = "0", view = "contado" } = req.query;
@@ -1454,7 +1479,7 @@ app.get("/api/catalog", makeRateLimit(30, 60_000), async (_req, res) => {
 });
 
 // Trending: los productos más buscados de las últimas 24h (para un carrusel de la landing).
-app.get("/api/trending", async (_req, res) => {
+app.get("/api/trending", makeRateLimit(30, 60_000), async (_req, res) => {
   const oneDayAgo = new Date(Date.now() - 24 * 3_600_000);
   const products = await prisma.product.findMany({
     where: {
@@ -1494,7 +1519,7 @@ app.get("/api/trending", async (_req, res) => {
 });
 
 // Lista de productos trackeados.
-app.get("/api/products", async (_req, res) => {
+app.get("/api/products", makeRateLimit(30, 60_000), async (_req, res) => {
   const products = await prisma.product.findMany({
     orderBy: { queries: "desc" },
     select: { id: true, title: true, queries: true, _count: { select: { prices: true } } },
@@ -1507,7 +1532,8 @@ app.get("/api/products", async (_req, res) => {
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
   const status = err.status ?? err.statusCode ?? 500;
-  console.error(`[error] ${req.method} ${req.path} ${status}:`, err.message, err.stack?.split("\n")[1]?.trim());
+  const detail = process.env.NODE_ENV !== "production" ? err.stack?.split("\n")[1]?.trim() : undefined;
+  console.error(`[error] ${req.method} ${req.path} ${status}:`, err.message, detail ?? "");
   if (res.headersSent) return;
   res.status(status).json({ error: status >= 500 ? "error interno" : err.message });
 });

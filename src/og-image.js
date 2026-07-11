@@ -41,10 +41,13 @@ function wrapTitle(title, maxChars = 24, maxLines = 2) {
   return lines.slice(0, maxLines);
 }
 
+const MLSTATIC_RE = /^https:\/\/([a-z0-9-]+\.)?mlstatic\.com\//i;
+
 /** Baja la imagen del producto y la devuelve como data URI (resvg no resuelve URLs remotas).
  *  resvg NO renderiza WebP embebido y ML sirve .webp → pedimos la variante .jpg (mismo CDN). */
 async function imageDataUri(url) {
   if (!url) return null;
+  if (!MLSTATIC_RE.test(url)) return null; // defense-in-depth: solo CDN de ML
   const jpg = url.replace(/\.webp(\?.*)?$/i, ".jpg");
   try {
     const res = await fetch(jpg, { signal: AbortSignal.timeout(8000) });
