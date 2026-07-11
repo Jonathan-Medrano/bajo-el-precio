@@ -1,7 +1,6 @@
 import { listAlerts, unsubscribeAlert, subscribeAlert, getHistory } from "./service.js";
 import { sendUser } from "./telegram.js";
 import { getPlan, FREE_ALERT_LIMIT } from "./plans.js";
-import { createPaymentPreference, PLANS } from "./mercadopago.js";
 import { prisma } from "./db.js";
 
 const PUBLIC_URL = process.env.PUBLIC_URL || "http://localhost:3000";
@@ -163,21 +162,11 @@ async function handleUpdate(update) {
       );
       return;
     }
-    try {
-      const { initPoint, plan } = await createPaymentPreference(chatId, 0);
-      await sendUser(chatId,
-        `⭐ <b>Bajó el Precio Premium</b>\n\n` +
-        `Con el plan Premium obtenés:\n` +
-        `• Alertas de precio <b>ilimitadas</b> (ahora: ${p.used}/${p.limit})\n` +
-        `• Notificaciones más rápidas\n` +
-        `• Sin restricciones\n\n` +
-        `💳 <b>${escHtml(plan.label)}</b> — ${fmtArs(plan.amount)}/mes\n\n` +
-        `👉 <a href="${initPoint}">Activar Premium ahora</a>`
-      );
-    } catch (e) {
-      console.error("[bot] premium link error:", e.message);
-      await sendUser(chatId, "❌ No se pudo generar el link de pago. Intentá de nuevo en unos minutos.");
-    }
+    await sendUser(chatId,
+      `⭐ <b>Bajó el Precio Premium</b>\n\n` +
+      `Alertas ilimitadas, notificaciones más rápidas y sin restricciones.\n\n` +
+      `⏳ Los planes de pago estarán disponibles próximamente. ¡Gracias por la paciencia!`
+    );
     return;
   }
 
