@@ -207,12 +207,13 @@
   <div class="login-card">
     <div class="login-icon">🔔</div>
     <div class="login-title">Tus alertas de precio</div>
-    <p class="login-sub">Ingresá tu Chat ID de Telegram para ver y gestionar tus alertas activas.</p>
-    <div class="field-label">Chat ID de Telegram</div>
-    <input class="field-input" id="chatid-input" type="text" placeholder="ej: 123456789" autocomplete="off" />
-    <button class="login-btn" id="login-btn">Ver mis alertas →</button>
-    <p class="login-help">No sabés tu ID? Mandá <strong>/start</strong> a <a href="https://t.me/bajoelprecio_bot" target="_blank" rel="noopener">@bajoelprecio_bot</a> y él te lo dice.</p>
-    <p id="login-error"></p>
+    <p class="login-sub">Para ver tus alertas, vinculá tu cuenta de Telegram desde el inicio.</p>
+    <a class="login-btn" href="/" style="display:block;text-align:center;text-decoration:none">Ir al inicio y vincular →</a>
+    <p class="login-help">Una vez vinculado, volvé acá y tus alertas cargarán automáticamente.</p>
+    <p id="login-error" style="color:var(--brand)"></p>
+    <!-- hidden inputs kept for auto-login only, no longer shown to user -->
+    <input id="chatid-input" type="hidden" />
+    <button id="login-btn" style="display:none"></button>
   </div>
 </div>
 
@@ -247,9 +248,9 @@
   const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   const STORAGE_KEY = 'bep_chatid';
 
-  function getSavedId() { return localStorage.getItem(STORAGE_KEY) || ''; }
+  function getSavedId() { return localStorage.getItem(STORAGE_KEY) || localStorage.getItem('tg_chatid') || ''; }
   function saveId(id) { localStorage.setItem(STORAGE_KEY, id); }
-  function clearId() { localStorage.removeItem(STORAGE_KEY); }
+  function clearId() { localStorage.removeItem(STORAGE_KEY); localStorage.removeItem('tg_chatid'); }
 
   function sparkSvg(prices, w = 240, h = 38) {
     if (!prices || prices.length < 2) return '';
@@ -347,6 +348,15 @@
   }
 
   async function loadDash(chatId) {
+    const token = localStorage.getItem('bep_token');
+    if (!token) {
+      // No session token — user needs to link via Telegram first
+      clearId();
+      showLogin();
+      $('login-error').textContent = 'Tu sesión expiró. Vinculá de nuevo desde la pantalla principal.';
+      return;
+    }
+
     $('login-section').style.display = 'none';
     $('dash-section').style.display = 'block';
     $('loading').style.display = 'block';
@@ -355,9 +365,10 @@
     $('dash-sub').textContent = 'Cargando...';
 
     try {
+      const authHeaders = { 'x-chat-token': token };
       const [alertsRes, planRes] = await Promise.all([
-        fetch(`/api/alerts/${encodeURIComponent(chatId)}`),
-        fetch(`/api/plan/${encodeURIComponent(chatId)}`),
+        fetch(`/api/alerts/${encodeURIComponent(chatId)}`, { headers: authHeaders }),
+        fetch(`/api/plan/${encodeURIComponent(chatId)}`, { headers: authHeaders }),
       ]);
       const alerts = await alertsRes.json();
       const plan = await planRes.json();
@@ -409,10 +420,11 @@
 
   async function deleteAlert(chatId, productId) {
     if (!confirm('¿Borrar esta alerta?')) return;
+    const token = localStorage.getItem('bep_token') || '';
     try {
       const r = await fetch('/api/alerts', {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-chat-token': token },
         body: JSON.stringify({ chatId, productId }),
       });
       if (r.ok) {
@@ -443,7 +455,7 @@
   });
 
   $('chatid-input').addEventListener('keydown', e => e.key === 'Enter' && $('login-btn').click());
-  $('logout-btn').addEventListener('click', () => { clearId(); showLogin(); });
+  $('logout-btn').addEventListener('click', () => { clearId(); localStorage.removeItem('bep_token'); showLogin(); });
 
   // ── Auto-login ──
   const saved = getSavedId();
@@ -451,5 +463,6 @@
   // No else needed — login-section is already visible by default
 </script>
 <script src="/theme.js"></script>
+<script src="/consent.js" defer></script>
 </body>
 </html>

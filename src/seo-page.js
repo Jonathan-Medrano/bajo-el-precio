@@ -291,7 +291,8 @@ footer{max-width:960px;margin:0 auto;padding:32px 24px;border-top:1px solid var(
 .modal-close{position:absolute;right:14px;top:14px;background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-soft);line-height:1;padding:4px}
 #modal-status{font-size:13px;color:var(--text-soft);margin-top:10px;min-height:18px}
 .link-code-box{background:var(--bg);border:2px dashed var(--border);border-radius:12px;padding:16px;text-align:center;margin-bottom:16px}
-.link-code{font-size:36px;font-weight:900;letter-spacing:8px;color:var(--brand);font-variant-numeric:tabular-nums;line-height:1}
+.link-code{font-size:36px;font-weight:900;letter-spacing:8px;color:var(--brand);font-variant-numeric:tabular-nums;line-height:1;cursor:pointer;user-select:all}
+.link-code:active{opacity:.7}
 .link-code-hint{font-size:12px;color:var(--text-xsoft);margin-top:6px}
 .modal-linked{background:rgba(34,197,94,.1);border:1.5px solid rgba(34,197,94,.3);border-radius:10px;padding:10px 14px;font-size:14px;font-weight:600;color:#16a34a;margin-bottom:14px;display:flex;align-items:center;gap:8px}
 [data-theme="dark"] .modal-linked{color:#4ade80}
@@ -459,8 +460,16 @@ ${buildNav({ active: null, baseUrl: appUrl })}
     try {
       const r = await fetch('/api/link-code', { method: 'POST' });
       const { code } = await r.json();
-      document.getElementById('modal-code').textContent = code;
-      document.getElementById('modal-code-hint').textContent = 'Enviá este código al bot de Telegram';
+      const codeEl = document.getElementById('modal-code');
+      const hintEl = document.getElementById('modal-code-hint');
+      codeEl.textContent = code;
+      hintEl.textContent = 'Tocá el código para copiarlo';
+      codeEl.onclick = () => {
+        navigator.clipboard?.writeText(code).then(() => {
+          hintEl.textContent = '✓ Copiado';
+          setTimeout(() => { hintEl.textContent = 'Tocá el código para copiarlo'; }, 1500);
+        }).catch(() => {});
+      };
       document.getElementById('modal-tg-btn').href = 'https://t.me/bajoelprecio_bot?start=link_' + code;
       document.getElementById('modal-link-status').textContent = 'Esperando vinculación…';
       if (_pollTimer) clearInterval(_pollTimer);
@@ -472,6 +481,7 @@ ${buildNav({ active: null, baseUrl: appUrl })}
           if (pd.chatId) {
             clearInterval(_pollTimer); _pollTimer = null;
             localStorage.setItem('tg_chatid', pd.chatId);
+            if (pd.token) localStorage.setItem('bep_token', pd.token);
             showLinked(pd.chatId);
           }
         } catch {}
@@ -531,6 +541,7 @@ ${buildNav({ active: null, baseUrl: appUrl })}
   });
 </script>
 <script src="/theme.js"></script>
+<script src="/consent.js" defer></script>
 </body>
 </html>`;
 }

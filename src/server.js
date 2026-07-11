@@ -101,6 +101,55 @@ app.use((req, res, next) => {
 
 app.use(express.static(join(__dirname, "..", "public"), { maxAge: "1d", etag: true }));
 
+// Consent banner + Meta Pixel — generado dinámicamente para inyectar META_PIXEL_ID desde env.
+// Incluido en todas las páginas via <script src="/consent.js" defer></script>.
+app.get("/consent.js", (_req, res) => {
+  const pixelId = process.env.META_PIXEL_ID || "";
+  res.set("Content-Type", "application/javascript; charset=utf-8");
+  res.set("Cache-Control", "public, max-age=300"); // 5 min — cambia solo cuando deployás
+  res.send(buildConsentScript(pixelId));
+});
+
+function buildConsentScript(pixelId) {
+  return `(function(){
+  var COOKIE='bep_consent';
+  function gc(n){return(document.cookie.split('; ').find(function(r){return r.startsWith(n+'=');})||'').split('=')[1];}
+  function sc(n,v,days){var d=new Date();d.setTime(d.getTime()+days*864e5);document.cookie=n+'='+v+';expires='+d.toUTCString()+';path=/;SameSite=Lax';}
+
+  ${pixelId ? `
+  var _pixelLoaded=false;
+  function loadPixel(){
+    if(_pixelLoaded)return; _pixelLoaded=true;
+    !function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');
+    fbq('init','${pixelId}');
+    fbq('track','PageView');
+  }
+  window.bepPixelEvent=function(event,data){if(_pixelLoaded&&window.fbq)fbq('track',event,data||{});};
+  ` : `window.bepPixelEvent=function(){};`}
+
+  function hideBanner(){var b=document.getElementById('bep-consent');if(b)b.remove();}
+
+  function accept(){sc(COOKIE,'analytics',365);hideBanner();${pixelId ? 'loadPixel();' : ''}}
+  function decline(){sc(COOKIE,'essential',365);hideBanner();}
+
+  function showBanner(){
+    if(document.getElementById('bep-consent'))return;
+    var el=document.createElement('div');
+    el.id='bep-consent';
+    el.innerHTML='<style>#bep-consent{position:fixed;bottom:0;left:0;right:0;z-index:9999;background:#1a1a1a;color:#e5e7eb;font-family:system-ui,sans-serif;font-size:13px;padding:14px 20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;box-shadow:0 -2px 16px rgba(0,0,0,.35)}#bep-consent p{margin:0;flex:1;min-width:200px;line-height:1.5}#bep-consent p a{color:#e64c1e;text-decoration:underline}#bep-consent .bep-btns{display:flex;gap:8px;flex-shrink:0}#bep-consent button{border:none;border-radius:8px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer}#bep-consent .bep-ok{background:#e64c1e;color:#fff}#bep-consent .bep-ok:hover{background:#c03d18}#bep-consent .bep-no{background:rgba(255,255,255,.1);color:#e5e7eb}#bep-consent .bep-no:hover{background:rgba(255,255,255,.15)}</style>'
+      +'<p>Usamos cookies de análisis para mejorar el sitio. <a href="/privacidad" target="_blank">Política de privacidad</a></p>'
+      +'<div class="bep-btns"><button class="bep-ok" id="bep-ok">Aceptar</button><button class="bep-no" id="bep-no">Solo esenciales</button></div>';
+    document.body.appendChild(el);
+    document.getElementById('bep-ok').onclick=accept;
+    document.getElementById('bep-no').onclick=decline;
+  }
+
+  var consent=gc(COOKIE);
+  if(consent==='analytics'){${pixelId ? 'loadPixel();' : ''}}
+  else if(!consent){document.addEventListener('DOMContentLoaded',function(){setTimeout(showBanner,1500);});}
+})();`;
+}
+
 app.get("/api/health", (_req, res) => res.json({ ok: true, service: "keepa-ml" }));
 
 // Stats globales para el contador del hero de la landing.
@@ -238,7 +287,10 @@ app.get("/privacidad", (_req, res) => {
   <p>Escribile <code>/borrar</code> al bot <a href="https://t.me/bajoelprecio_bot">@bajoelprecio_bot</a> para eliminar todas tus alertas. Alternativamente, podés contactarnos vía Telegram.</p>
 
   <h2>Cookies</h2>
-  <p>No usamos cookies de seguimiento ni publicidad. Guardamos preferencias de tema (oscuro/claro) en <code>localStorage</code> de tu navegador, que no sale de tu dispositivo.</p>
+  <p>Usamos dos tipos de cookies:</p>
+  <p><strong>Esenciales:</strong> guardamos tu preferencia de tema (oscuro/claro) en <code>localStorage</code> y la cookie <code>bep_consent</code> para recordar tu elección de privacidad. Estas no pueden desactivarse.</p>
+  <p><strong>De análisis (opcionales):</strong> si aceptás, instalamos el pixel de Meta (Facebook) para medir el alcance de nuestros anuncios y mejorar la experiencia. Esta cookie solo se activa con tu consentimiento y podés rechazarla o cambiar tu decisión.</p>
+  <p>Para cambiar tu preferencia, limpiá las cookies del sitio desde la configuración de tu navegador.</p>
 
   <a class="back" href="/">← Volver al inicio</a>
 </div>
