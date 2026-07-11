@@ -10,7 +10,10 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function apiJson(path, token) {
   try {
-    const res = await fetch(`${B}${path}`, { headers: { Authorization: `Bearer ${token}` } });
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 10_000);
+    const res = await fetch(`${B}${path}`, { headers: { Authorization: `Bearer ${token}` }, signal: ctrl.signal })
+      .finally(() => clearTimeout(timer));
     if (!res.ok) return null;
     return await res.json();
   } catch {

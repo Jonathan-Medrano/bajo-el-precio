@@ -58,9 +58,12 @@ function verifySignature(req) {
 
 async function getPayment(paymentId) {
   if (!MP_ACCESS_TOKEN) throw new Error("MP_ACCESS_TOKEN no configurado");
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 10_000);
   const r = await fetch(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
     headers: { Authorization: `Bearer ${MP_ACCESS_TOKEN}` },
-  });
+    signal: ctrl.signal,
+  }).finally(() => clearTimeout(timer));
   if (!r.ok) throw new Error(`MP API ${r.status}`);
   return r.json();
 }
@@ -75,12 +78,15 @@ export async function createPaymentPreference(chatId, planIndex = 0) {
   const plan = PLANS[planIndex] ?? PLANS[0];
   const publicUrl = process.env.PUBLIC_URL || "https://bajoelprecio.fly.dev";
 
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 10_000);
   const r = await fetch("https://api.mercadopago.com/checkout/preferences", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${MP_ACCESS_TOKEN}`,
       "Content-Type": "application/json",
     },
+    signal: ctrl.signal,
     body: JSON.stringify({
       items: [{ title: `Bajó el Precio ${plan.label}`, quantity: 1, currency_id: "ARS", unit_price: plan.amount }],
       external_reference: String(chatId),
@@ -92,7 +98,7 @@ export async function createPaymentPreference(chatId, planIndex = 0) {
       auto_return: "approved",
       statement_descriptor: "Bajo el Precio",
     }),
-  });
+  }).finally(() => clearTimeout(timer));
   if (!r.ok) {
     const body = await r.text();
     throw new Error(`MP preference error ${r.status}: ${body}`);

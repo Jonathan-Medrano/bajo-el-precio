@@ -8,6 +8,12 @@
 
 const IG_API = "https://graph.facebook.com/v19.0";
 
+async function igFetch(url, options = {}) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 15_000);
+  return fetch(url, { ...options, signal: ctrl.signal }).finally(() => clearTimeout(timer));
+}
+
 function igCreds() {
   const { INSTAGRAM_USER_ID: userId, INSTAGRAM_ACCESS_TOKEN: token } = process.env;
   if (!userId || !token) return null;
@@ -19,7 +25,7 @@ function igCreds() {
  * Returns the creation ID (used in publish step).
  */
 async function createMediaContainer({ imageUrl, caption, userId, token }) {
-  const res = await fetch(`${IG_API}/${userId}/media`, {
+  const res = await igFetch(`${IG_API}/${userId}/media`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ image_url: imageUrl, caption, access_token: token }),
@@ -31,7 +37,7 @@ async function createMediaContainer({ imageUrl, caption, userId, token }) {
 
 /** Publish a previously created container. */
 async function publishContainer({ creationId, userId, token }) {
-  const res = await fetch(`${IG_API}/${userId}/media_publish`, {
+  const res = await igFetch(`${IG_API}/${userId}/media_publish`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ creation_id: creationId, access_token: token }),
@@ -126,7 +132,7 @@ export async function postDealsCarouselToInstagram(deals) {
     // Step 1: create individual image containers (children)
     const childIds = [];
     for (const d of slides) {
-      const res = await fetch(`${IG_API}/${c.userId}/media`, {
+      const res = await igFetch(`${IG_API}/${c.userId}/media`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -144,7 +150,7 @@ export async function postDealsCarouselToInstagram(deals) {
     const caption = buildCarouselCaption(deals, baseUrl);
 
     // Step 2: create carousel container
-    const carRes = await fetch(`${IG_API}/${c.userId}/media`, {
+    const carRes = await igFetch(`${IG_API}/${c.userId}/media`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -160,7 +166,7 @@ export async function postDealsCarouselToInstagram(deals) {
     await new Promise((r) => setTimeout(r, 3000));
 
     // Step 3: publish
-    const pubRes = await fetch(`${IG_API}/${c.userId}/media_publish`, {
+    const pubRes = await igFetch(`${IG_API}/${c.userId}/media_publish`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ creation_id: carData.id, access_token: c.token }),
