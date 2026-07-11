@@ -9,11 +9,14 @@ export async function getAppToken() {
     client_id: process.env.ML_CLIENT_ID ?? "",
     client_secret: process.env.ML_CLIENT_SECRET ?? "",
   });
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 10_000);
   const res = await fetch(TOKEN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
     body,
-  });
+    signal: ctrl.signal,
+  }).finally(() => clearTimeout(timer));
   if (!res.ok) throw new Error(`token ML fallo: HTTP ${res.status}`);
   const data = await res.json();
   cached = { token: data.access_token, expiresAt: Date.now() + (data.expires_in ?? 21_600) * 1000 };
