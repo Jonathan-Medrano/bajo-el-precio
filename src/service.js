@@ -142,7 +142,7 @@ export async function listAlerts(chatId) {
       productId: a.productId,
       title: a.product.title,
       image: a.product.image,
-      url: a.product.url,
+      url: affiliateUrl(a.product.url) || a.product.url,
       targetPrice: a.targetPrice,
       currentPrice: current,
       min,

@@ -355,7 +355,7 @@ async function fetchDeals({ category } = {}) {
     const avg = prices.reduce((s, x) => s + x.price, 0) / prices.length;
     if (current > min * 1.08) continue;
     const savingPct = Math.round(((avg - current) / avg) * 100);
-    deals.push({ id: p.id, title: p.title, image: p.image, url: p.url, category: p.category, current, min, avg: Math.round(avg), savingPct });
+    deals.push({ id: p.id, title: p.title, image: p.image, url: affiliateUrl(p.url) || p.url, category: p.category, current, min, avg: Math.round(avg), savingPct });
   }
 
   deals.sort((a, b) => b.savingPct - a.savingPct);
