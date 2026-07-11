@@ -11,13 +11,24 @@ export function parseProductId(input) {
   const s = String(input ?? "").trim();
   if (!s) return null;
 
-  let m = s.match(/\/up\/(ML[A-Z]*\d+)/i);
+  const slugToTitle = (slug) =>
+    slug.replace(/-+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()).trim();
+
+  let m = s.match(/\/([^/]+)\/up\/(ML[A-Z]*\d+)/i);
   if (m) {
+    const id = m[2].toUpperCase();
+    return { id, type: "catalog", url: `${SITE}/up/${id}`, titleHint: slugToTitle(m[1]) };
+  }
+  if ((m = s.match(/\/up\/(ML[A-Z]*\d+)/i))) {
     const id = m[1].toUpperCase();
     return { id, type: "catalog", url: `${SITE}/up/${id}` };
   }
-  m = s.match(/\/p\/(ML[A-Z]*\d+)/i);
+  m = s.match(/\/([^/]+)\/p\/(ML[A-Z]*\d+)/i);
   if (m) {
+    const id = m[2].toUpperCase();
+    return { id, type: "catalog", url: `${SITE}/p/${id}`, titleHint: slugToTitle(m[1]) };
+  }
+  if ((m = s.match(/\/p\/(ML[A-Z]*\d+)/i))) {
     const id = m[1].toUpperCase();
     return { id, type: "catalog", url: `${SITE}/p/${id}` };
   }

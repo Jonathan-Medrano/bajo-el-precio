@@ -14,7 +14,8 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const BROWSER_DIR = join(__dirname, "..", ".browser");
-const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "60ec3fb79d1485a2";
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN;
+if (!ADMIN_TOKEN) { console.error("Falta ADMIN_TOKEN. Setealo: $env:ADMIN_TOKEN='tu-token'"); process.exit(1); }
 const SERVER = process.env.SERVER_URL || "https://bajoelprecio.fly.dev";
 
 console.log("Abriendo perfil local de Playwright en:", BROWSER_DIR);
@@ -55,7 +56,7 @@ const res = await fetch(`${SERVER}/admin/set-twitter-cookies`, {
 const data = await res.json();
 if (data.ok) {
   console.log(`✅ ${data.count} cookies subidas a producción.`);
-  console.log("Ahora podés probar: curl -X POST https://bajoelprecio.fly.dev/admin/post-twitter -H \"x-admin-token: 60ec3fb79d1485a2\"");
+  console.log("Ahora podés probar: curl -X POST https://bajoelprecio.fly.dev/admin/post-twitter -H \"x-admin-token: $env:ADMIN_TOKEN\"");
 } else {
   console.error("❌ Error del servidor:", data);
   process.exit(1);

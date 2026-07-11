@@ -29,15 +29,21 @@ export async function trackerApiCycle({ limit = 100000, delayMs = 120 } = {}) {
       }
       if (r.price) {
         await prisma.pricePoint.create({ data: { productId: p.id, price: r.price } });
-        await prisma.product.update({
-          where: { id: p.id },
-          data: { title: r.title ?? p.title, image: r.image ?? p.image },
-        });
         await onNewPrice(p.id, r.price);
         ok++;
         if (ok % 100 === 0) console.log(`  ${ok} con precio... (último ${p.id} $${r.price})`);
       } else {
         noprice++;
+      }
+      // Persist title/image regardless of price — image can come back even when no active listing
+      if (r.title || r.image) {
+        await prisma.product.update({
+          where: { id: p.id },
+          data: {
+            ...(r.title ? { title: r.title } : {}),
+            ...(r.image ? { image: r.image } : {}),
+          },
+        });
       }
     } catch (e) {
       console.warn(`  ${p.id} error: ${e.message}`);

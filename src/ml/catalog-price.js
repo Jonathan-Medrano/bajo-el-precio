@@ -8,13 +8,13 @@ async function apiGet(path, token) {
   return fetch(`${B}${path}`, { headers: { Authorization: `Bearer ${token}` } });
 }
 
-/** Mejor precio = mínimo entre las ofertas nuevas del catálogo (cae a cualquier condición si no hay nuevas). */
-function bestPrice(items = []) {
+/** Mejor item = más barato entre los nuevos (o cualquier condición si no hay nuevos). */
+function bestItem(items = []) {
   const valid = items.filter((x) => Number.isFinite(x.price) && x.price > 0);
   const news = valid.filter((x) => x.condition === "new");
   const pool = news.length ? news : valid;
   if (!pool.length) return null;
-  return Math.round(Math.min(...pool.map((x) => x.price)));
+  return pool.reduce((best, x) => (x.price < best.price ? x : best));
 }
 
 /**
@@ -31,7 +31,11 @@ export async function readCatalogProduct(productId, { withMeta = true } = {}) {
   if (itemsRes.status === 429 || itemsRes.status === 403) return { id: productId, blocked: true };
   if (!itemsRes.ok) return { id: productId, blocked: false, price: null };
   const itemsData = await itemsRes.json();
-  const price = bestPrice(itemsData.results ?? []);
+  const best = bestItem(itemsData.results ?? []);
+  const price = best ? Math.round(best.price) : null;
+  const cheapestUrl = best?.item_id
+    ? `https://articulo.mercadolibre.com.ar/${best.item_id.replace(/^([A-Z]+)(\d+)$/, "$1-$2")}`
+    : null;
 
   // 2) Metadata (name + imagen). Best-effort: si falla, igual devolvemos el precio.
   let title, image;
@@ -41,12 +45,17 @@ export async function readCatalogProduct(productId, { withMeta = true } = {}) {
       if (prodRes.ok) {
         const p = await prodRes.json();
         title = p.name ?? undefined;
-        image = p.pictures?.[0]?.url ?? p.pictures?.[0]?.secure_url ?? undefined;
+        const pic = p.pictures?.[0];
+        image = pic?.secure_url ?? pic?.url ?? undefined;
       }
     } catch {
       /* metadata opcional */
     }
+    // Fallback: thumbnail del item más barato (siempre disponible cuando hay precio).
+    if (!image && best) {
+      image = best.secure_thumbnail ?? best.thumbnail ?? undefined;
+    }
   }
 
-  return { id: productId, blocked: false, price, title, image };
+  return { id: productId, blocked: false, price, cheapestUrl, title, image };
 }
