@@ -1,83 +1,125 @@
-# Keepa-ML — Historial de precios de MercadoLibre
+# Bajó el Precio
 
-Un "Keepa para MercadoLibre": pegás el link de un producto y ves cómo evolucionó su precio en el tiempo (gráfico), con mínimo/máximo/promedio y un veredicto de si es buen momento para comprar.
+Seguimiento histórico de precios en Mercado Libre. Pegás el link de un producto
+y ves cómo se movió su precio en el tiempo, con un veredicto de si el precio de
+hoy es realmente bueno.
+
+**El problema que resuelve:** una publicación que dice *"40% OFF"* no te dice
+nada. El precio pudo haber subido la semana pasada justamente para que el
+descuento parezca más grande. Sin la serie histórica no hay forma de distinguir
+una baja real de un descuento fabricado — y esa serie hay que construirla día a
+día, porque nadie la publica.
+
+![Historial de precios](demo.png)
+
+---
+
+## Cómo funciona
+
+```
+Scraper (Playwright) ──> PostgreSQL ──> API (Express) ──┬─> Web
+      ▲                  serie temporal                 ├─> Extensión de navegador
+      │                                                 └─> Bot de Telegram
+   Tracker en loop                                            │
+   (re-scrapea y agrega un punto)                        Alertas de baja
+```
+
+El valor no está en el scraper: está en **acumular la serie temporal**. Un
+precio suelto no dice nada; mil precios en el tiempo son el producto.
+
+---
+
+## Decisiones técnicas que vale la pena mirar
+
+**El scraper lee el precio real, no el primero que encuentra.** Mercado Libre
+muestra varios precios en una misma página —el del vendedor, el del catálogo, el
+de cuotas— y el que importa es el "Mejor precio" del catálogo. Además hay que
+manejar el caso de los centavos, que vienen en un nodo aparte del DOM y si no se
+leen dan un precio equivocado por dos órdenes de magnitud.
+→ [`src/ml/price-reader.js`](src/ml/price-reader.js)
+
+**Los links de Mercado Libre tienen cuatro formatos distintos** (`/p/`, `/up/`,
+item directo y los cortos de `meli.la`) y todos apuntan al mismo producto. Sin
+normalizarlos, el mismo producto se trackea varias veces y la serie se parte.
+→ [`src/link-parser.js`](src/link-parser.js) · [`src/link-expander.js`](src/link-expander.js)
+
+**Postgres embebido para desarrollo, sin Docker.** `node scripts/db.js` levanta
+una instancia real de Postgres en `localhost:5433`. Mismo motor que producción,
+sin pedirle a nadie que instale nada.
+→ [`scripts/db.js`](scripts/db.js)
+
+**El bot de Telegram es la interfaz, no un extra.** Mandás un link, quedás
+suscripto a las bajas de ese producto y te llega el aviso cuando baja de verdad.
+Nadie abre una web para chequear un precio todos los días; un mensaje sí lo lee.
+→ [`src/bot.js`](src/bot.js) · [`src/alerts.js`](src/alerts.js) · [`src/telegram.js`](src/telegram.js)
+
+**Publicación automatizada.** El sistema genera las imágenes de las ofertas y
+las publica solo, para que el canal siga vivo sin intervención manual.
+→ [`src/ig-image.js`](src/ig-image.js) · [`src/instagram.js`](src/instagram.js) · [`src/twitter-store.js`](src/twitter-store.js)
+
+---
 
 ## Stack
 
-- **Backend**: Node (ESM) + Express + Prisma 6 + Playwright (scraper)
-- **DB**: PostgreSQL — local con `embedded-postgres` (sin Docker), en prod Supabase
-- **Frontend**: HTML + Chart.js (estático, servido por Express). En prod → Vercel.
-- **Deploy futuro**: Fly.io (backend) + Supabase (DB) + Vercel (frontend)
+| Capa | Tecnología |
+|---|---|
+| Backend | Node.js (ESM) · Express · Prisma 6 |
+| Scraping | Playwright con manejo anti-bot |
+| Base de datos | PostgreSQL — embebido en local, Supabase en producción |
+| Frontend | Web estática con Chart.js · React para el panel |
+| Extensión | Extensión de navegador que inyecta el historial en la página de ML |
+| Mensajería | Bot de Telegram (webhooks con verificación de token) |
+| Pagos | Mercado Pago para los planes |
+| Deploy | Fly.io (backend + volumen para el perfil del navegador) |
 
-## Cómo correrlo en local (2 procesos)
+---
+
+## Correrlo en local
 
 ```bash
-# 1) Postgres local (dejar corriendo en una terminal)
+# 1) Postgres local (dejar corriendo en otra terminal)
 node scripts/db.js
-#    → levanta Postgres en localhost:5433/keepa
 
-# 2) (solo la primera vez / si cambia el schema) crear tablas
+# 2) Crear las tablas (solo la primera vez)
 node node_modules/prisma/build/index.js migrate dev
 
-# 3) (opcional) sembrar datos demo para ver el gráfico
+# 3) Datos de ejemplo, para ver el gráfico sin esperar días
 node --env-file=.env scripts/seed-demo.js
 
-# 4) API + frontend
+# 4) API + frontend  →  http://localhost:3000
 node --env-file=.env src/server.js
-#    → abrir http://localhost:3000
 ```
 
-## El tracker (motor que acumula historial)
+El motor que acumula el historial va aparte:
 
 ```bash
 node --env-file=.env src/tracker.js
 ```
-Re-scrapea todos los productos trackeados y guarda un nuevo punto de precio.
-Conviene correrlo en loop (cada X horas) — ahí se construye el "moat" de datos.
 
-## Estructura
+Re-scrapea todo lo trackeado y agrega un punto nuevo a cada serie. Corriéndolo
+en loop es como se construye el histórico.
 
-```
-prisma/schema.prisma   modelo: Product + PricePoint (la serie temporal = el gráfico)
-src/
-  db.js                cliente Prisma
-  link-parser.js       extrae el ID de cualquier link de ML (/up/, /p/, item)
-  link-expander.js     resuelve links cortos (meli.la)
-  ml/price-reader.js   lee el "Mejor precio" del producto (Playwright, anti-bot)
-  service.js           trackProduct(link) + getHistory(id)
-  server.js            API Express (/api/track, /api/product/:id, /api/products)
-  tracker.js           ciclo del tracker (re-scrape)
-public/index.html      frontend con el gráfico (Chart.js)
-scripts/
-  db.js                Postgres local (embedded)
-  seed-demo.js         datos demo
-  screenshot.js        captura del frontend (demo.png)
-```
+Copiá `.env.example` a `.env` y completá los valores. **Ningún secreto está
+versionado** — ni siquiera en el historial de commits.
+
+---
 
 ## API
 
-- `POST /api/track`  body `{ "url": "https://..." }` → lee, guarda y devuelve historial
-- `GET /api/product/:id` → historial de un producto ya trackeado
-- `GET /api/products` → lista de productos trackeados
+| Método | Ruta | Qué hace |
+|---|---|---|
+| `POST` | `/api/track` | Recibe `{ url }`, scrapea, guarda y devuelve el historial |
+| `GET` | `/api/product/:id` | Historial de un producto ya trackeado |
+| `GET` | `/api/products` | Lista de productos en seguimiento |
+
+---
 
 ## Estado
 
-✅ DB local + schema + migración
-✅ Scraper (precio real, fix de centavos heredado)
-✅ API end-to-end (verificado: trackea el A16 → guarda → devuelve)
-✅ Frontend con gráfico (ver `demo.png`)
-✅ Tracker (motor de re-scrape)
+Funcionando de punta a punta: scraper, base, API, web, extensión, bot de
+Telegram con alertas y publicación automatizada. **Hoy está apagado por costos
+de infraestructura**, no por fallas.
 
-⚠️ El A16 (MLAU3829685373) tiene historial **DEMO** sembrado para mostrar el gráfico.
-   Los datos reales se acumulan corriendo el tracker con el tiempo.
-
-## Próximos pasos
-
-1. **Tracker como servicio** (loop/cron) para acumular historial real.
-2. **Deploy**: Supabase (DB) → cambiar `DATABASE_URL`/`DIRECT_URL` en `.env`;
-   backend a Fly.io; frontend a Vercel (apuntando a la API de Fly).
-3. **Descubrimiento**: sembrar productos populares (highlights/categorías) para
-   trackear desde el arranque, no solo lo que consultan los usuarios.
-4. **Features**: alertas de baja de precio, comparador (reusar el matcher de
-   `precio-historico`), búsqueda por nombre, cuotas.
-5. **Monetización**: link de afiliado en cada producto, premium (alertas), B2B.
+Lo más honesto que se puede decir de un proyecto así: el código funciona, y la
+serie de precios sólo tiene valor si el tracker corre todos los días. Eso último
+es un problema de plata, no de ingeniería.
