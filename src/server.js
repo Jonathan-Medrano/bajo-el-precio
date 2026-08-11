@@ -1064,6 +1064,46 @@ app.post("/admin/recategorize", requireAdmin, async (_req, res) => {
   res.json({ ok: true, message: "recategorize iniciado en background" });
   import("./recategorize.js").then(({ recategorize }) => recategorize()).catch(console.error);
 });
+// --- OAuth bootstrap: ML dejo de aceptar client_credentials para LEER (highlights/search).
+// Login de una sola vez para conseguir un refresh_token; despues se rota solo. El token
+// de admin va por query (?token=) porque esto lo abrís a mano en el navegador, no por header.
+app.get("/admin/ml-oauth/start", (req, res) => {
+  const token = String(req.query.token ?? "");
+  if (!ADMIN_TOKEN || token.length !== ADMIN_TOKEN.length ||
+      !timingSafeEqual(Buffer.from(token), Buffer.from(ADMIN_TOKEN))) {
+    return res.status(403).send("no autorizado");
+  }
+  const redirectUri = `${baseUrlOf(req)}/admin/ml-oauth/callback`;
+  const authUrl = `https://auth.mercadolibre.com.ar/authorization?response_type=code&client_id=${process.env.ML_CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}`;
+  res.redirect(authUrl);
+});
+app.get("/admin/ml-oauth/callback", async (req, res) => {
+  const code = req.query.code;
+  if (!code) return res.status(400).send(`falta ?code (query recibida: ${JSON.stringify(req.query)})`);
+  const redirectUri = `${baseUrlOf(req)}/admin/ml-oauth/callback`;
+  try {
+    const r = await fetch("https://api.mercadolibre.com/oauth/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        client_id: process.env.ML_CLIENT_ID,
+        client_secret: process.env.ML_CLIENT_SECRET,
+        code: String(code),
+        redirect_uri: redirectUri,
+      }),
+    });
+    const data = await r.json();
+    if (!r.ok) return res.status(r.status).send(`<pre>${JSON.stringify(data, null, 2)}</pre>`);
+    res.send(`<pre>Listo. Pegá esto en cazaofertas/.env como ML_REFRESH_TOKEN (reemplazando la linea vacia):
+
+ML_REFRESH_TOKEN=${data.refresh_token}
+
+(usuario ML autorizado: ${data.user_id})</pre>`);
+  } catch (e) {
+    res.status(500).send(`error: ${e.message}`);
+  }
+});
 // Dispara el digest social manualmente (útil para probar las credenciales antes del primer post automático).
 // Postea a Twitter/X e Instagram con los deals actuales.
 app.post("/admin/post-social", requireAdmin, async (_req, res) => {
