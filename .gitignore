@@ -12,3 +12,4 @@ node_modules/
 .pgdata/
 dist/
 build/
+ig-previews/
