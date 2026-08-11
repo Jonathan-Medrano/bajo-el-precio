@@ -17,11 +17,13 @@ día, porque nadie la publica.
 ## Cómo funciona
 
 ```
-Scraper (Playwright) ──> PostgreSQL ──> API (Express) ──┬─> Web
-      ▲                  serie temporal                 ├─> Extensión de navegador
-      │                                                 └─> Bot de Telegram
-   Tracker en loop                                            │
-   (re-scrapea y agrega un punto)                        Alertas de baja
+Scraper (Playwright) ──> PostgreSQL ──> API (Express) ──> Web
+      ▲                  serie temporal        │
+      │                                        └─> ¿mínimo histórico?
+   Tracker en loop                                      │
+   (re-scrapea y agrega un punto)              ┌────────┴────────┐
+                                          Canal Telegram      Twitter
+                                          + DM por usuario    (automático)
 ```
 
 El valor no está en el scraper: está en **acumular la serie temporal**. Un
@@ -48,14 +50,28 @@ una instancia real de Postgres en `localhost:5433`. Mismo motor que producción,
 sin pedirle a nadie que instale nada.
 → [`scripts/db.js`](scripts/db.js)
 
-**El bot de Telegram es la interfaz, no un extra.** Mandás un link, quedás
-suscripto a las bajas de ese producto y te llega el aviso cuando baja de verdad.
-Nadie abre una web para chequear un precio todos los días; un mensaje sí lo lee.
-→ [`src/bot.js`](src/bot.js) · [`src/alerts.js`](src/alerts.js) · [`src/telegram.js`](src/telegram.js)
+**La alerta se dispara ante un mínimo histórico, no ante "bajó algo".** El
+precio nuevo se compara contra **toda la serie acumulada**, no contra el punto
+anterior, y hace falta un mínimo de historia antes de avisar — con dos datos
+cualquier variación parece un récord. Esa es la diferencia entre una alerta útil
+y una que la gente silencia a la semana.
+→ [`src/alerts.js`](src/alerts.js)
 
-**Publicación automatizada.** El sistema genera las imágenes de las ofertas y
-las publica solo, para que el canal siga vivo sin intervención manual.
-→ [`src/ig-image.js`](src/ig-image.js) · [`src/instagram.js`](src/instagram.js) · [`src/twitter-store.js`](src/twitter-store.js)
+**Dos canales de aviso, con lógicas distintas.** El canal público recibe el
+broadcast de cada mínimo histórico; cada usuario recibe un mensaje directo según
+el **precio objetivo** que haya fijado, y si no fijó ninguno, cuando hay mínimo.
+Nadie abre una web para chequear un precio todos los días; un mensaje sí lo lee.
+→ [`src/bot.js`](src/bot.js) · [`src/telegram.js`](src/telegram.js)
+
+**El bot solo envía, nunca hace polling.** Comparte token con otro bot que sí
+consume `getUpdates`, y dos consumidores del mismo token se roban los mensajes
+entre sí. Restringirlo a `sendMessage` es lo que permite que convivan.
+→ [`src/telegram.js`](src/telegram.js)
+
+**Publicación automática en Twitter.** Cada mínimo histórico se publica también
+como tweet, replicando el aviso del canal, para que la distribución no dependa
+de que alguien esté mirando.
+→ [`src/twitter.js`](src/twitter.js)
 
 ---
 
@@ -67,8 +83,8 @@ las publica solo, para que el canal siga vivo sin intervención manual.
 | Scraping | Playwright con manejo anti-bot |
 | Base de datos | PostgreSQL — embebido en local, Supabase en producción |
 | Frontend | Web estática con Chart.js · React para el panel |
-| Extensión | Extensión de navegador que inyecta el historial en la página de ML |
 | Mensajería | Bot de Telegram (webhooks con verificación de token) |
+| Distribución | Publicación automática en Twitter |
 | Pagos | Mercado Pago para los planes |
 | Deploy | Fly.io (backend + volumen para el perfil del navegador) |
 
@@ -116,9 +132,12 @@ versionado** — ni siquiera en el historial de commits.
 
 ## Estado
 
-Funcionando de punta a punta: scraper, base, API, web, extensión, bot de
-Telegram con alertas y publicación automatizada. **Hoy está apagado por costos
-de infraestructura**, no por fallas.
+Funcionando de punta a punta: scraper, base, API, web, bot de Telegram con
+alertas y publicación automática en Twitter. **Hoy está apagado por costos de
+infraestructura**, no por fallas.
+
+La carpeta `extension/` es una prueba que quedó a mitad de camino y nunca se
+terminó. Está en el repo porque es parte de la historia, no porque funcione.
 
 Lo más honesto que se puede decir de un proyecto así: el código funciona, y la
 serie de precios sólo tiene valor si el tracker corre todos los días. Eso último
